@@ -51,13 +51,20 @@ body {
 .section-title { font-size: 22px; letter-spacing: -0.04em; margin: 0 0 8px; }
 .section-description { color: var(--muted); margin: 0 0 20px; }
 
-.question { padding: 22px 0; border-top: 1px solid var(--line); }
+.question {
+  padding: 34px 0;
+  border-top: 1px solid var(--line);
+}
+
+.question + .question {
+  margin-top: 10px;
+}
 .question:first-of-type { border-top: 0; }
-.question-title { font-size: 17px; font-weight: 800; line-height: 1.5; margin-bottom: 12px; letter-spacing: -0.02em; }
+.question-title { font-size: 17px; font-weight: 800; line-height: 1.5; margin-bottom: 18px; letter-spacing: -0.02em; }
 .required { color: var(--danger); margin-left: 4px; }
 .question-desc { color: var(--muted); margin: -2px 0 12px; line-height: 1.5; }
 
-.option-list { display: grid; gap: 10px; }
+.option-list { display: grid; gap: 14px; }
 .option { display: flex; align-items: flex-start; gap: 10px; padding: 13px 14px; border: 1px solid var(--line); border-radius: 14px; background: #fff; cursor: pointer; transition: border .15s, background .15s; }
 .option:hover { border-color: #b8c8db; background: #fbfdff; }
 .option input { margin-top: 3px; }
