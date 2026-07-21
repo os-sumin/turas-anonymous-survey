@@ -1,10 +1,13 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { QuestionType, SurveyConfig, SurveyQuestion, SurveySection } from "@/lib/types";
 
 type DraftQuestion = SurveyQuestion;
 type DraftSection = SurveySection;
+type SurveyListItem = { id: string; title: string; agency: string };
+
+const PASSWORD_STORAGE_KEY = "turas_admin_password";
 
 const questionTypes: { value: QuestionType; label: string }[] = [
   { value: "single", label: "단일선택" },
@@ -12,21 +15,19 @@ const questionTypes: { value: QuestionType; label: string }[] = [
   { value: "text", label: "단답형" },
   { value: "textarea", label: "장문형" },
   { value: "number", label: "숫자형" },
-  { value: "scale", label: "척도형" }
+  { value: "scale", label: "척도형" },
+  { value: "file", label: "파일첨부" }
 ];
 
 const initialSurvey: SurveyConfig = {
   id: "new_survey_2027",
-  agency: "정보통신산업진흥원",
-  title: "2027년 AI ICT 재정지원 방향 수요조사",
-  subtitle: "AI·ICT 분야 재정지원 수요 및 정책개선 의견수렴",
-  description: "본 설문은 향후 AI·ICT 분야 재정지원 방향 설정을 위한 의견수렴 목적으로 진행됩니다.",
-  notice: [
-    "본 설문은 무기명으로 운영되며, 기업명·사업자번호·과제번호·담당자명 등 식별정보를 수집하지 않습니다.",
-    "응답 결과는 통계 분석 및 정책방향 검토 목적으로만 활용됩니다.",
-    "자유기재 문항에는 기업을 특정할 수 있는 정보를 입력하지 않는 것을 권장드립니다."
-  ],
-  endAt: "2027-12-31T23:59:59+09:00",
+  agency: "한국산업기술진흥원 (KIAT)",
+  title: "새 설문 제목을 입력해 주세요.",
+  subtitle: "",
+  description: "설문 목적을 입력해 주세요.",
+  notice: ["제출해 주신 자료는 조사 목적 외에는 사용되지 않습니다."],
+  endAt: "",
+  anonymous: false,
   sections: [
     {
       id: "section_1",
@@ -35,10 +36,9 @@ const initialSurvey: SurveyConfig = {
       questions: [
         {
           id: "q1",
-          type: "single",
-          title: "현재 귀사의 AI·ICT 기술 활용 단계는 어디에 가장 가깝습니까?",
-          required: true,
-          options: ["기술 검토 단계", "시제품 또는 PoC 단계", "실증·고도화 단계", "상용화 단계", "해당 없음"]
+          type: "text",
+          title: "귀사의 기업명을 입력해 주세요.",
+          required: true
         }
       ]
     }
@@ -46,13 +46,99 @@ const initialSurvey: SurveyConfig = {
 };
 
 export default function SurveyBuilder() {
+  const [password, setPassword] = useState("");
+  const [passwordInput, setPasswordInput] = useState("");
   const [survey, setSurvey] = useState<SurveyConfig>(initialSurvey);
   const [selectedSectionId, setSelectedSectionId] = useState(initialSurvey.sections[0].id);
-  const [copyMessage, setCopyMessage] = useState("");
+  const [toast, setToast] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [surveyList, setSurveyList] = useState<SurveyListItem[]>([]);
 
-  const selectedSection = survey.sections.find((section) => section.id === selectedSectionId) || survey.sections[0];
+  const selectedSection =
+    survey.sections.find((section) => section.id === selectedSectionId) || survey.sections[0];
 
   const configText = useMemo(() => JSON.stringify(survey, null, 2), [survey]);
+
+  useEffect(() => {
+    const stored = sessionStorage.getItem(PASSWORD_STORAGE_KEY);
+    if (stored) setPassword(stored);
+  }, []);
+
+  useEffect(() => {
+    if (password) void refreshList(password);
+  }, [password]);
+
+  function showToast(message: string) {
+    setToast(message);
+    setTimeout(() => setToast(""), 2500);
+  }
+
+  async function refreshList(pw: string) {
+    try {
+      const response = await fetch("/api/admin/surveys", { headers: { "x-admin-password": pw } });
+      if (response.status === 401) {
+        sessionStorage.removeItem(PASSWORD_STORAGE_KEY);
+        setPassword("");
+        showToast("비밀번호가 올바르지 않습니다.");
+        return;
+      }
+      const result = (await response.json()) as { ok?: boolean; surveys?: SurveyListItem[] };
+      if (result.ok && result.surveys) setSurveyList(result.surveys);
+    } catch {
+      showToast("설문 목록을 불러오지 못했습니다.");
+    }
+  }
+
+  function submitPassword() {
+    const value = passwordInput.trim();
+    if (!value) return;
+    sessionStorage.setItem(PASSWORD_STORAGE_KEY, value);
+    setPassword(value);
+    setPasswordInput("");
+  }
+
+  async function saveSurvey() {
+    setSaving(true);
+    try {
+      const response = await fetch("/api/admin/surveys", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-admin-password": password },
+        body: JSON.stringify({ config: survey })
+      });
+      const result = (await response.json()) as { ok?: boolean; message?: string };
+
+      if (!response.ok || !result.ok) {
+        throw new Error(result.message || "저장에 실패했습니다.");
+      }
+
+      showToast(`저장되었습니다. (${survey.id})`);
+      void refreshList(password);
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "저장에 실패했습니다.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function loadSurvey(surveyId: string) {
+    if (!surveyId) return;
+    try {
+      const response = await fetch(`/api/admin/surveys?id=${encodeURIComponent(surveyId)}`, {
+        headers: { "x-admin-password": password }
+      });
+      const result = (await response.json()) as { ok?: boolean; config?: SurveyConfig; message?: string };
+
+      if (!response.ok || !result.ok || !result.config) {
+        throw new Error(result.message || "불러오기에 실패했습니다.");
+      }
+
+      setSurvey(result.config);
+      setSelectedSectionId(result.config.sections[0]?.id || "");
+      showToast(`${surveyId} 를 불러왔습니다.`);
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "불러오기에 실패했습니다.");
+    }
+  }
 
   function updateSurvey<K extends keyof SurveyConfig>(key: K, value: SurveyConfig[K]) {
     setSurvey((prev) => ({ ...prev, [key]: value }));
@@ -80,6 +166,7 @@ export default function SurveyBuilder() {
         section.id === sectionId ? { ...section, ...patch } : section
       )
     }));
+    if (patch.id) setSelectedSectionId(patch.id);
   }
 
   function removeSection(sectionId: string) {
@@ -94,17 +181,12 @@ export default function SurveyBuilder() {
 
   function addQuestion(sectionId: string, type: QuestionType = "single") {
     const questionCount = survey.sections.reduce((sum, section) => sum + section.questions.length, 0);
-    const newQuestion: DraftQuestion = {
+    const newQuestion: DraftQuestion = normalizeQuestion({
       id: `q${questionCount + 1}`,
       type,
       title: "새 문항을 입력해 주세요.",
-      required: false,
-      options: type === "single" || type === "multiple" ? ["선택지 1", "선택지 2"] : undefined,
-      min: type === "scale" ? 1 : undefined,
-      max: type === "scale" ? 5 : undefined,
-      minLabel: type === "scale" ? "낮음" : undefined,
-      maxLabel: type === "scale" ? "높음" : undefined
-    };
+      required: false
+    });
 
     setSurvey((prev) => ({
       ...prev,
@@ -145,8 +227,7 @@ export default function SurveyBuilder() {
 
   async function copyConfig() {
     await navigator.clipboard.writeText(configText);
-    setCopyMessage("JSON이 복사되었습니다.");
-    setTimeout(() => setCopyMessage(""), 2000);
+    showToast("JSON이 복사되었습니다.");
   }
 
   function downloadConfig() {
@@ -159,23 +240,62 @@ export default function SurveyBuilder() {
     URL.revokeObjectURL(url);
   }
 
+  if (!password) {
+    return (
+      <main className="builder-gate">
+        <div className="builder-gate-card">
+          <h1>TURAS Survey Builder</h1>
+          <p>관리자 비밀번호를 입력해 주세요.</p>
+          <input
+            type="password"
+            value={passwordInput}
+            autoFocus
+            onChange={(event) => setPasswordInput(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") submitPassword();
+            }}
+          />
+          <button className="builder-btn primary" onClick={submitPassword}>
+            들어가기
+          </button>
+          {toast && <div className="builder-gate-error">{toast}</div>}
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main className="builder-shell">
       <header className="builder-topbar">
         <div>
           <div className="builder-logo">TURAS Survey Builder</div>
-          <div className="builder-sub">설문 문항 생성용 임시 관리자 화면</div>
+          <div className="builder-sub">설문 문항 생성 및 저장</div>
         </div>
         <div className="builder-actions">
+          <select
+            className="builder-select"
+            value=""
+            onChange={(event) => loadSurvey(event.target.value)}
+          >
+            <option value="">저장된 설문 불러오기</option>
+            {surveyList.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.title} ({item.id})
+              </option>
+            ))}
+          </select>
           <a className="builder-btn secondary" href={`/survey/${survey.id}`} target="_blank">
             응답화면 열기
           </a>
           <button className="builder-btn secondary" onClick={downloadConfig}>JSON 다운로드</button>
-          <button className="builder-btn primary" onClick={copyConfig}>JSON 복사</button>
+          <button className="builder-btn secondary" onClick={copyConfig}>JSON 복사</button>
+          <button className="builder-btn primary" onClick={saveSurvey} disabled={saving}>
+            {saving ? "저장 중..." : "저장하기"}
+          </button>
         </div>
       </header>
 
-      {copyMessage && <div className="builder-toast">{copyMessage}</div>}
+      {toast && <div className="builder-toast">{toast}</div>}
 
       <div className="builder-layout">
         <aside className="builder-sidebar">
@@ -222,7 +342,19 @@ export default function SurveyBuilder() {
               </label>
               <label>
                 응답 마감일시
-                <input value={survey.endAt || ""} onChange={(event) => updateSurvey("endAt", event.target.value)} />
+                <input
+                  placeholder="2026-08-07T23:59:59+09:00"
+                  value={survey.endAt || ""}
+                  onChange={(event) => updateSurvey("endAt", event.target.value)}
+                />
+              </label>
+              <label className="builder-check">
+                <input
+                  type="checkbox"
+                  checked={Boolean(survey.anonymous)}
+                  onChange={(event) => updateSurvey("anonymous", event.target.checked)}
+                />
+                무기명 설문 (식별정보 미수집)
               </label>
             </div>
           </div>
@@ -288,6 +420,7 @@ export default function SurveyBuilder() {
                 <strong>{section.title}</strong>
                 {section.questions.map((question) => (
                   <div className="preview-question" key={question.id}>
+                    {question.type === "file" && <span className="preview-file-tag">첨부</span>}
                     {question.title}
                     {question.required && <span> *</span>}
                   </div>
@@ -398,27 +531,75 @@ function QuestionEditor({
             </label>
           </>
         )}
+
+        {question.type === "file" && (
+          <>
+            <label className="builder-col-span">
+              허용 확장자, 쉼표 구분 (비우면 전체 허용)
+              <input
+                placeholder=".pdf, .xlsx, .xls"
+                value={(question.accept || []).join(", ")}
+                onChange={(event) =>
+                  onChange({
+                    accept: event.target.value
+                      .split(",")
+                      .map((item) => item.trim())
+                      .filter(Boolean)
+                      .map((item) => (item.startsWith(".") ? item : `.${item}`))
+                  })
+                }
+              />
+            </label>
+            <label>
+              최대 용량 (MB)
+              <input
+                type="number"
+                min={1}
+                max={100}
+                value={question.maxSizeMB ?? 20}
+                onChange={(event) => onChange({ maxSizeMB: Number(event.target.value) })}
+              />
+            </label>
+            <label>
+              최대 첨부 개수
+              <input
+                type="number"
+                min={1}
+                max={10}
+                value={question.maxFiles ?? 1}
+                onChange={(event) => onChange({ maxFiles: Number(event.target.value) })}
+              />
+            </label>
+          </>
+        )}
       </div>
     </div>
   );
 }
 
 function normalizeQuestion(question: DraftQuestion): DraftQuestion {
+  const base = {
+    ...question,
+    options: undefined,
+    min: undefined,
+    max: undefined,
+    minLabel: undefined,
+    maxLabel: undefined,
+    accept: undefined,
+    maxSizeMB: undefined,
+    maxFiles: undefined
+  } as DraftQuestion;
+
   if (question.type === "single" || question.type === "multiple") {
     return {
-      ...question,
-      options: question.options && question.options.length > 0 ? question.options : ["선택지 1", "선택지 2"],
-      min: undefined,
-      max: undefined,
-      minLabel: undefined,
-      maxLabel: undefined
+      ...base,
+      options: question.options && question.options.length > 0 ? question.options : ["선택지 1", "선택지 2"]
     };
   }
 
   if (question.type === "scale") {
     return {
-      ...question,
-      options: undefined,
+      ...base,
       min: question.min ?? 1,
       max: question.max ?? 5,
       minLabel: question.minLabel ?? "낮음",
@@ -426,14 +607,16 @@ function normalizeQuestion(question: DraftQuestion): DraftQuestion {
     };
   }
 
-  return {
-    ...question,
-    options: undefined,
-    min: undefined,
-    max: undefined,
-    minLabel: undefined,
-    maxLabel: undefined
-  };
+  if (question.type === "file") {
+    return {
+      ...base,
+      accept: question.accept ?? [],
+      maxSizeMB: question.maxSizeMB ?? 20,
+      maxFiles: question.maxFiles ?? 1
+    };
+  }
+
+  return base;
 }
 
 function toSlug(value: string) {

@@ -1,15 +1,18 @@
 import { notFound, redirect } from "next/navigation";
 import SurveyForm from "@/components/SurveyForm";
-import { getSurveyConfig } from "@/lib/survey.config";
+import { loadSurveyConfig } from "@/lib/survey-store";
 import { getEffectiveEndAt, isSurveyClosed } from "@/lib/survey-utils";
+
+// Firestore에서 설문을 읽으므로 매 요청마다 최신 상태를 반영
+export const dynamic = "force-dynamic";
 
 type Props = {
   params: { surveyId: string };
   searchParams: { t?: string };
 };
 
-export default function SurveyPage({ params, searchParams }: Props) {
-  const config = getSurveyConfig(params.surveyId);
+export default async function SurveyPage({ params, searchParams }: Props) {
+  const config = await loadSurveyConfig(params.surveyId);
   if (!config) notFound();
 
   if (isSurveyClosed(config)) {
@@ -21,7 +24,9 @@ export default function SurveyPage({ params, searchParams }: Props) {
       <header className="header">
         <div>
           <div className="logo-text">TURAS Survey</div>
-          <div className="logo-sub">Anonymous response page</div>
+          <div className="logo-sub">
+            {config.anonymous === false ? "Survey response page" : "Anonymous response page"}
+          </div>
         </div>
         <div className="logo-sub">응답 마감: {formatDate(getEffectiveEndAt(config))}</div>
       </header>
@@ -32,9 +37,11 @@ export default function SurveyPage({ params, searchParams }: Props) {
           <h1 className="title">{config.title}</h1>
           {config.subtitle && <p className="subtitle">{config.subtitle}</p>}
           <p className="subtitle">{config.description}</p>
-          <div className="notice-box">
-            <ul>{config.notice.map((item) => <li key={item}>{item}</li>)}</ul>
-          </div>
+          {config.notice.length > 0 && (
+            <div className="notice-box">
+              <ul>{config.notice.map((item) => <li key={item}>{item}</li>)}</ul>
+            </div>
+          )}
         </div>
 
         <SurveyForm config={config} token={searchParams.t} />

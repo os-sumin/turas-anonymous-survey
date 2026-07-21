@@ -1,5 +1,8 @@
 import crypto from "crypto";
-import type { SurveyConfig, SurveyQuestion } from "./types";
+import type { SurveyConfig, SurveyQuestion, UploadedFile } from "./types";
+
+export const DEFAULT_MAX_SIZE_MB = 20;
+export const HARD_MAX_SIZE_MB = 100;
 
 export function getEffectiveEndAt(config: SurveyConfig): string | undefined {
   return process.env.SURVEY_END_AT || config.endAt;
@@ -17,6 +20,10 @@ export function flattenQuestions(config: SurveyConfig): SurveyQuestion[] {
   return config.sections.flatMap((section) => section.questions);
 }
 
+export function findQuestion(config: SurveyConfig, questionId: string): SurveyQuestion | null {
+  return flattenQuestions(config).find((q) => q.id === questionId) ?? null;
+}
+
 export function validateAnswers(
   config: SurveyConfig,
   rawAnswers: Record<string, unknown>
@@ -31,7 +38,8 @@ export function validateAnswers(
     }
 
     if (isEmptyAnswer(value)) {
-      clean[question.id] = question.type === "multiple" ? [] : "";
+      clean[question.id] =
+        question.type === "multiple" || question.type === "file" ? [] : "";
       continue;
     }
 
@@ -68,9 +76,82 @@ export function validateAnswers(
       if (typeof value !== "string") return { ok: false, message: `"${question.title}" 응답 형식이 올바르지 않습니다.` };
       clean[question.id] = value.trim().slice(0, question.type === "textarea" ? 3000 : 500);
     }
+
+    if (question.type === "file") {
+      const result = validateFileAnswer(config, question, value);
+      if (!result.ok) return result;
+      clean[question.id] = result.files;
+    }
   }
 
   return { ok: true, answers: clean };
+}
+
+function validateFileAnswer(
+  config: SurveyConfig,
+  question: SurveyQuestion,
+  value: unknown
+): { ok: true; files: UploadedFile[] } | { ok: false; message: string } {
+  if (!Array.isArray(value)) {
+    return { ok: false, message: `"${question.title}" 첨부 형식이 올바르지 않습니다.` };
+  }
+
+  const maxFiles = question.maxFiles ?? 1;
+  if (value.length > maxFiles) {
+    return { ok: false, message: `"${question.title}"에는 최대 ${maxFiles}개까지 첨부할 수 있습니다.` };
+  }
+
+  const files: UploadedFile[] = [];
+  const expectedPrefix = `uploads/${config.id}/${question.id}/`;
+
+  for (const item of value) {
+    const file = item as Partial<UploadedFile>;
+
+    if (typeof file?.path !== "string" || typeof file?.name !== "string" || typeof file?.size !== "number") {
+      return { ok: false, message: `"${question.title}" 첨부 정보가 올바르지 않습니다.` };
+    }
+
+    // 클라이언트가 임의 경로를 보내지 못하도록 경로 검증
+    if (!file.path.startsWith(expectedPrefix) || file.path.includes("..")) {
+      return { ok: false, message: `"${question.title}" 첨부 경로가 올바르지 않습니다.` };
+    }
+
+    const limitMB = Math.min(question.maxSizeMB ?? DEFAULT_MAX_SIZE_MB, HARD_MAX_SIZE_MB);
+    if (file.size > limitMB * 1024 * 1024) {
+      return { ok: false, message: `"${question.title}" 첨부 용량은 ${limitMB}MB를 초과할 수 없습니다.` };
+    }
+
+    if (!isAllowedExtension(file.name, question.accept)) {
+      return {
+        ok: false,
+        message: `"${question.title}"에는 ${(question.accept || []).join(", ")} 형식만 첨부할 수 있습니다.`
+      };
+    }
+
+    files.push({
+      path: file.path,
+      name: file.name.slice(0, 300),
+      size: file.size,
+      type: typeof file.type === "string" ? file.type.slice(0, 200) : undefined
+    });
+  }
+
+  return { ok: true, files };
+}
+
+export function isAllowedExtension(filename: string, accept?: string[]): boolean {
+  if (!accept || accept.length === 0) return true;
+  const lower = filename.toLowerCase();
+  return accept.some((ext) => lower.endsWith(ext.toLowerCase().trim()));
+}
+
+/** 저장 경로에 쓸 수 있도록 파일명 정리 */
+export function sanitizeFilename(filename: string): string {
+  return filename
+    .replace(/[\\/]/g, "_")
+    .replace(/[\x00-\x1f]/g, "")
+    .replace(/\s+/g, "_")
+    .slice(-120);
 }
 
 function isEmptyAnswer(value: unknown): boolean {
