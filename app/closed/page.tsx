@@ -1,29 +1,32 @@
-import Link from "next/link";
-import { getSurveyConfig } from "@/lib/survey.config";
+import { loadSurveyConfig } from "@/lib/survey-store";
+import CloseButton from "@/components/CloseButton";
+
+export const dynamic = "force-dynamic";
 
 type Props = { searchParams: { surveyId?: string } };
 
-export default function ClosedPage({ searchParams }: Props) {
-  const config = searchParams.surveyId ? getSurveyConfig(searchParams.surveyId) : null;
+export default async function ClosedPage({ searchParams }: Props) {
+  const config = searchParams.surveyId ? await loadSurveyConfig(searchParams.surveyId) : null;
 
   return (
     <main className="page-shell">
       <header className="header">
         <div>
           <div className="logo-text">{config?.agency || "TURAS Survey"}</div>
-          <div className="logo-sub">Anonymous response page</div>
+          <div className="logo-sub">Survey response page</div>
         </div>
       </header>
 
       <section className="simple-card">
-        <h1 className="title">{config ? `(${config.agency}) ${config.title}` : "설문조사"}</h1>
+        <h1 className="title">{config ? config.title : "설문조사"}</h1>
         <div className="icon-circle">×</div>
         <p className="message">
-          [답변종료된 설문 입니다. 더 이상 답변할 수 없습니다.
+          답변이 종료된 설문입니다. 더 이상 응답할 수 없습니다.
           <br />
-          만약 답변 중에 이 페이지로 넘어왔다면 답변이 제출되지 않은 것입니다.]
+          답변 도중 이 페이지로 넘어왔다면 응답이 제출되지 않은 것입니다.
         </p>
-        <Link className="exit-btn" href="/">나가기</Link>
+        <p className="message-sub">문의사항은 담당자에게 연락해 주세요.</p>
+        <CloseButton />
       </section>
 
       <div className="footer-note">Powered by TURAS Survey</div>

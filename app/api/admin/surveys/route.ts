@@ -1,7 +1,14 @@
 import { NextResponse } from "next/server";
 import { isAdminAuthorized } from "@/lib/admin-auth";
 import { isFirebaseConfigured } from "@/lib/firebase-admin";
-import { listSurveyConfigs, loadSurveyConfig, saveSurveyConfig, validateSurveyConfig } from "@/lib/survey-store";
+import {
+  deleteSurveyConfig,
+  isBuiltinSurvey,
+  listSurveyConfigs,
+  loadSurveyConfig,
+  saveSurveyConfig,
+  validateSurveyConfig
+} from "@/lib/survey-store";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -52,6 +59,41 @@ export async function POST(request: Request) {
   } catch (error) {
     console.error(error);
     return NextResponse.json({ ok: false, message: "저장 중 오류가 발생했습니다." }, { status: 500 });
+  }
+}
+
+/** 설문 정의 삭제 (수집된 응답과 첨부파일은 보존) */
+export async function DELETE(request: Request) {
+  if (!isAdminAuthorized(request)) return unauthorized();
+
+  try {
+    if (!isFirebaseConfigured()) {
+      return NextResponse.json(
+        { ok: false, message: "Firebase가 설정되지 않아 삭제할 수 없습니다." },
+        { status: 503 }
+      );
+    }
+
+    const surveyId = new URL(request.url).searchParams.get("id");
+    if (!surveyId) {
+      return NextResponse.json({ ok: false, message: "삭제할 설문 ID가 없습니다." }, { status: 400 });
+    }
+
+    await deleteSurveyConfig(surveyId);
+
+    // 코드에 같은 ID가 남아 있으면 삭제해도 그 버전이 계속 노출된다
+    if (isBuiltinSurvey(surveyId)) {
+      return NextResponse.json({
+        ok: true,
+        survey_id: surveyId,
+        warning: "survey.config.ts에 같은 ID의 설문이 있어 코드 버전이 계속 노출됩니다."
+      });
+    }
+
+    return NextResponse.json({ ok: true, survey_id: surveyId });
+  } catch (error) {
+    console.error(error);
+    return NextResponse.json({ ok: false, message: "삭제 중 오류가 발생했습니다." }, { status: 500 });
   }
 }
 

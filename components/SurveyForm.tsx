@@ -37,6 +37,22 @@ export default function SurveyForm({ config, token }: Props) {
       return;
     }
 
+    // 필수 첨부 문항 확인 (브라우저 기본 검증이 파일 문항에는 적용되지 않음)
+    const missingFile = config.sections
+      .flatMap((section) => section.questions)
+      .find(
+        (question) =>
+          question.type === "file" &&
+          question.required &&
+          (!Array.isArray(answers[question.id]) || (answers[question.id] as UploadedFile[]).length === 0)
+      );
+
+    if (missingFile) {
+      setError(`"${missingFile.title}" 문항에 파일을 첨부해 주세요.`);
+      document.getElementById(`q-${missingFile.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
@@ -110,7 +126,7 @@ function QuestionField({
   onUploadEnd: () => void;
 }) {
   return (
-    <div className="question">
+    <div className="question" id={`q-${question.id}`}>
       <div className="question-title">
         {question.title}
         {question.required && <span className="required">*</span>}
@@ -309,18 +325,6 @@ function FileField({
           />
           <span>{busy ? "업로드 중..." : "파일 선택 또는 여기로 끌어다 놓기"}</span>
         </label>
-      )}
-
-      {/* 필수 문항인데 첨부가 없으면 브라우저 기본 검증에 걸리도록 */}
-      {question.required && files.length === 0 && (
-        <input
-          className="file-required-guard"
-          required
-          tabIndex={-1}
-          aria-hidden="true"
-          value=""
-          onChange={() => undefined}
-        />
       )}
 
       {uploadError && <div className="file-error">{uploadError}</div>}

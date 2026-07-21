@@ -40,29 +40,79 @@ export async function saveSurveyConfig(config: SurveyConfig): Promise<void> {
   );
 }
 
-export async function listSurveyConfigs(): Promise<
-  { id: string; title: string; agency: string }[]
-> {
+export type SurveyListItem = {
+  id: string;
+  title: string;
+  agency: string;
+  /** 코드(survey.config.ts)에만 있는 설문은 삭제할 수 없음 */
+  source: "firestore" | "code";
+  responseCount: number;
+};
+
+export async function listSurveyConfigs(): Promise<SurveyListItem[]> {
   if (!isFirebaseConfigured()) {
     return Object.values(builtinSurveys).map((c) => ({
       id: c.id,
       title: c.title,
-      agency: c.agency
+      agency: c.agency,
+      source: "code" as const,
+      responseCount: 0
     }));
   }
 
-  const snap = await getDb().collection(CONFIG_COLLECTION).orderBy("updated_at", "desc").get();
+  const db = getDb();
+  const snap = await db.collection(CONFIG_COLLECTION).orderBy("updated_at", "desc").get();
+
   const fromDb = snap.docs.map((doc) => {
     const data = doc.data() as { title?: string; agency?: string };
-    return { id: doc.id, title: data.title || doc.id, agency: data.agency || "" };
+    return {
+      id: doc.id,
+      title: data.title || doc.id,
+      agency: data.agency || "",
+      source: "firestore" as const,
+      responseCount: 0
+    };
   });
 
   const dbIds = new Set(fromDb.map((item) => item.id));
   const fromCode = Object.values(builtinSurveys)
     .filter((c) => !dbIds.has(c.id))
-    .map((c) => ({ id: c.id, title: c.title, agency: c.agency }));
+    .map((c) => ({
+      id: c.id,
+      title: c.title,
+      agency: c.agency,
+      source: "code" as const,
+      responseCount: 0
+    }));
 
-  return [...fromDb, ...fromCode];
+  const items = [...fromDb, ...fromCode];
+
+  // 각 설문의 누적 응답 수를 붙인다 (삭제 전 확인용)
+  await Promise.all(
+    items.map(async (item) => {
+      try {
+        const doc = await db.collection("surveys").doc(item.id).get();
+        item.responseCount = (doc.data()?.response_count as number) ?? 0;
+      } catch {
+        item.responseCount = 0;
+      }
+    })
+  );
+
+  return items;
+}
+
+/**
+ * 설문 정의만 삭제한다. 이미 수집된 응답(surveys/{id}/responses)과
+ * 업로드된 첨부파일은 그대로 보존된다.
+ */
+export async function deleteSurveyConfig(surveyId: string): Promise<void> {
+  await getDb().collection(CONFIG_COLLECTION).doc(surveyId).delete();
+}
+
+/** survey.config.ts에 하드코딩된 설문인지 */
+export function isBuiltinSurvey(surveyId: string): boolean {
+  return Boolean(builtinSurveys[surveyId]);
 }
 
 /** 저장 전 최소한의 형식 검증 */

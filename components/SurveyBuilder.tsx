@@ -5,7 +5,13 @@ import type { QuestionType, SurveyConfig, SurveyQuestion, SurveySection } from "
 
 type DraftQuestion = SurveyQuestion;
 type DraftSection = SurveySection;
-type SurveyListItem = { id: string; title: string; agency: string };
+type SurveyListItem = {
+  id: string;
+  title: string;
+  agency: string;
+  source: "firestore" | "code";
+  responseCount: number;
+};
 
 const PASSWORD_STORAGE_KEY = "turas_admin_password";
 
@@ -53,6 +59,7 @@ export default function SurveyBuilder() {
   const [toast, setToast] = useState("");
   const [saving, setSaving] = useState(false);
   const [surveyList, setSurveyList] = useState<SurveyListItem[]>([]);
+  const [showList, setShowList] = useState(false);
 
   const selectedSection =
     survey.sections.find((section) => section.id === selectedSectionId) || survey.sections[0];
@@ -137,6 +144,37 @@ export default function SurveyBuilder() {
       showToast(`${surveyId} 를 불러왔습니다.`);
     } catch (err) {
       showToast(err instanceof Error ? err.message : "불러오기에 실패했습니다.");
+    }
+  }
+
+  async function deleteSurvey(item: SurveyListItem) {
+    if (item.source === "code") {
+      showToast("코드에 정의된 설문은 여기서 삭제할 수 없습니다.");
+      return;
+    }
+
+    const warning =
+      item.responseCount > 0
+        ? `\n\n이미 ${item.responseCount}건의 응답이 수집되어 있습니다.\n응답과 첨부파일은 삭제되지 않고 남지만, 설문 페이지는 더 이상 열리지 않습니다.`
+        : "";
+
+    if (!confirm(`"${item.title}" (${item.id}) 설문을 삭제할까요?${warning}`)) return;
+
+    try {
+      const response = await fetch(`/api/admin/surveys?id=${encodeURIComponent(item.id)}`, {
+        method: "DELETE",
+        headers: { "x-admin-password": password }
+      });
+      const result = (await response.json()) as { ok?: boolean; message?: string; warning?: string };
+
+      if (!response.ok || !result.ok) {
+        throw new Error(result.message || "삭제에 실패했습니다.");
+      }
+
+      showToast(result.warning || `${item.id} 를 삭제했습니다.`);
+      void refreshList(password);
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "삭제에 실패했습니다.");
     }
   }
 
@@ -272,18 +310,12 @@ export default function SurveyBuilder() {
           <div className="builder-sub">설문 문항 생성 및 저장</div>
         </div>
         <div className="builder-actions">
-          <select
-            className="builder-select"
-            value=""
-            onChange={(event) => loadSurvey(event.target.value)}
-          >
-            <option value="">저장된 설문 불러오기</option>
-            {surveyList.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.title} ({item.id})
-              </option>
-            ))}
-          </select>
+          <button className="builder-btn secondary" onClick={() => setShowList((v) => !v)}>
+            저장된 설문 {surveyList.length > 0 ? `(${surveyList.length})` : ""}
+          </button>
+          <a className="builder-btn secondary" href="/admin/responses">
+            응답 현황
+          </a>
           <a className="builder-btn secondary" href={`/survey/${survey.id}`} target="_blank">
             응답화면 열기
           </a>
@@ -296,6 +328,41 @@ export default function SurveyBuilder() {
       </header>
 
       {toast && <div className="builder-toast">{toast}</div>}
+
+      {showList && (
+        <div className="survey-list-panel">
+          <div className="survey-list-head">
+            <strong>저장된 설문</strong>
+            <button className="text-muted" onClick={() => setShowList(false)}>닫기</button>
+          </div>
+          {surveyList.length === 0 && <div className="empty-box">저장된 설문이 없습니다.</div>}
+          {surveyList.map((item) => (
+            <div className="survey-list-row" key={item.id}>
+              <div className="survey-list-info">
+                <div className="survey-list-title">
+                  {item.title}
+                  {item.source === "code" && <span className="survey-list-tag">코드</span>}
+                </div>
+                <div className="survey-list-meta">
+                  {item.id} · 응답 {item.responseCount}건
+                </div>
+              </div>
+              <div className="survey-list-actions">
+                <button className="builder-btn secondary" onClick={() => loadSurvey(item.id)}>
+                  불러오기
+                </button>
+                <button
+                  className="builder-btn danger"
+                  disabled={item.source === "code"}
+                  onClick={() => deleteSurvey(item)}
+                >
+                  삭제
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       <div className="builder-layout">
         <aside className="builder-sidebar">
