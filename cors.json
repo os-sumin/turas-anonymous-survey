@@ -1,0 +1,8 @@
+[
+  {
+    "origin": ["https://내프로젝트.vercel.app", "http://localhost:3000"],
+    "method": ["PUT", "GET"],
+    "responseHeader": ["Content-Type", "x-goog-content-length-range"],
+    "maxAgeSeconds": 3600
+  }
+]
