@@ -572,10 +572,25 @@ function QuestionEditor({
         )}
 
         {(question.type === "text" || question.type === "textarea" || question.type === "number") && (
-          <label className="builder-col-span">
-            입력 안내문
-            <input value={question.placeholder || ""} onChange={(event) => onChange({ placeholder: event.target.value })} />
-          </label>
+          <>
+            <label className="builder-col-span">
+              입력 안내문
+              <input value={question.placeholder || ""} onChange={(event) => onChange({ placeholder: event.target.value })} />
+            </label>
+            <label className="builder-col-span">
+              파일명에 쓸 값 (선택)
+              <select
+                value={question.namePart ?? ""}
+                onChange={(event) =>
+                  onChange({ namePart: (event.target.value || undefined) as "project" | "company" | undefined })
+                }
+              >
+                <option value="">사용 안 함</option>
+                <option value="project">과제번호 자리</option>
+                <option value="company">기업명 자리</option>
+              </select>
+            </label>
+          </>
         )}
 
         {question.type === "scale" && (
@@ -617,6 +632,14 @@ function QuestionEditor({
                 }
               />
             </label>
+            <label className="builder-col-span">
+              파일명 라벨 (비우면 문항 제목 사용)
+              <input
+                placeholder="예: 서면실태조사표"
+                value={question.fileLabel || ""}
+                onChange={(event) => onChange({ fileLabel: event.target.value })}
+              />
+            </label>
             <label>
               최대 용량 (MB)
               <input
@@ -637,6 +660,19 @@ function QuestionEditor({
                 onChange={(event) => onChange({ maxFiles: Number(event.target.value) })}
               />
             </label>
+            <label className="builder-col-span">
+              파일명에 쓸 값 (선택)
+              <select
+                value={question.namePart ?? ""}
+                onChange={(event) =>
+                  onChange({ namePart: (event.target.value || undefined) as "project" | "company" | undefined })
+                }
+              >
+                <option value="">사용 안 함</option>
+                <option value="project">과제번호 자리</option>
+                <option value="company">기업명 자리</option>
+              </select>
+            </label>
           </>
         )}
       </div>
@@ -652,9 +688,11 @@ function normalizeQuestion(question: DraftQuestion): DraftQuestion {
     max: undefined,
     minLabel: undefined,
     maxLabel: undefined,
+    namePart: question.namePart,
     accept: undefined,
     maxSizeMB: undefined,
-    maxFiles: undefined
+    maxFiles: undefined,
+    fileLabel: undefined
   } as DraftQuestion;
 
   if (question.type === "single" || question.type === "multiple") {
@@ -679,7 +717,8 @@ function normalizeQuestion(question: DraftQuestion): DraftQuestion {
       ...base,
       accept: question.accept ?? [],
       maxSizeMB: question.maxSizeMB ?? 20,
-      maxFiles: question.maxFiles ?? 1
+      maxFiles: question.maxFiles ?? 1,
+      fileLabel: question.fileLabel
     };
   }
 

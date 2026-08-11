@@ -89,6 +89,41 @@ export default function ResponseDashboard() {
     }
   }
 
+  async function downloadBlob(path: string, fallbackName: string) {
+    setMessage("파일 생성 중... (첨부가 많으면 시간이 걸립니다)");
+    try {
+      const response = await fetch(path, { headers: { "x-admin-password": password } });
+      if (!response.ok) {
+        const err = (await response.json().catch(() => null)) as { message?: string } | null;
+        throw new Error(err?.message || "생성에 실패했습니다.");
+      }
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = fallbackName;
+      link.click();
+      URL.revokeObjectURL(objectUrl);
+      setMessage("");
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "생성에 실패했습니다.");
+    }
+  }
+
+  function downloadRowZip(responseId: string) {
+    void downloadBlob(
+      `/api/admin/responses/bundle?surveyId=${encodeURIComponent(selectedId)}&responseId=${encodeURIComponent(responseId)}`,
+      `${selectedId}_${responseId.slice(0, 8)}.zip`
+    );
+  }
+
+  function downloadAllZip() {
+    void downloadBlob(
+      `/api/admin/responses/bundle?surveyId=${encodeURIComponent(selectedId)}`,
+      `${selectedId}_전체제출.zip`
+    );
+  }
+
   async function downloadExcel() {
     if (!selectedId) return;
     setMessage("엑셀 생성 중...");
@@ -153,6 +188,9 @@ export default function ResponseDashboard() {
           <button className="builder-btn secondary" onClick={() => loadResponses(selectedId)} disabled={loading}>
             새로고침
           </button>
+          <button className="builder-btn secondary" onClick={downloadAllZip} disabled={!data || data.count === 0}>
+            전체 ZIP
+          </button>
           <button className="builder-btn primary" onClick={downloadExcel} disabled={!data || data.count === 0}>
             엑셀 다운로드
           </button>
@@ -214,6 +252,7 @@ export default function ResponseDashboard() {
                 <thead>
                   <tr>
                     <th className="col-no">#</th>
+                    <th className="col-zip">받기</th>
                     <th className="col-date">제출일시</th>
                     {data.headers.map((header) => (
                       <th key={header.id} title={header.title}>{header.title}</th>
@@ -224,6 +263,11 @@ export default function ResponseDashboard() {
                   {data.rows.map((row, index) => (
                     <tr key={row.responseId}>
                       <td className="col-no">{index + 1}</td>
+                      <td className="col-zip">
+                        <button className="zip-btn" onClick={() => downloadRowZip(row.responseId)}>
+                          ZIP
+                        </button>
+                      </td>
                       <td className="col-date">{formatKST(row.submittedAt)}</td>
                       {data.headers.map((header) => {
                         const cell = row.cells[header.id];
