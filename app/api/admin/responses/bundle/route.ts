@@ -8,7 +8,6 @@ import { buildSummaryWorkbook } from "@/lib/summary-excel";
 import {
   dedupeName,
   extractNameParts,
-  makeAttachmentName,
   makePrefix,
   safeName
 } from "@/lib/naming";
@@ -25,9 +24,9 @@ export const maxDuration = 300;
  *   ?surveyId=xxx                 → 전체를 기업별 폴더로 묶은 ZIP 하나
  *
  * ZIP 구조:
- *   과제번호_기업명/
- *     과제번호_기업명_서류종류.pdf
- *     과제번호_기업명_요약.xlsx
+ *   기업명_매출발생여부/
+ *     기업이 낸 원본 파일명 그대로
+ *     기업명_매출발생여부_요약.xlsx
  */
 export async function GET(request: Request) {
   if (!isAdminAuthorized(request)) {
@@ -80,8 +79,8 @@ export async function GET(request: Request) {
         if (!isFileAnswer(value)) continue;
 
         for (const file of value as UploadedFile[]) {
-          const label = question.fileLabel?.trim() || question.title;
-          const name = dedupeName(usedFiles, makeAttachmentName(prefix, label, file.name));
+          // 기업이 낸 원본 파일명을 그대로 사용
+          const name = dedupeName(usedFiles, file.name);
           if (!bucket) {
             zip.file(`${folderName}${name}.링크없음.txt`, "Storage가 설정되지 않아 파일을 가져올 수 없습니다.");
             continue;
