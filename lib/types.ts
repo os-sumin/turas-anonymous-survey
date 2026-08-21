@@ -1,6 +1,8 @@
 export type QuestionType =
   | "single"
   | "multiple"
+  | "ranking"
+  | "matrix"
   | "text"
   | "textarea"
   | "number"
@@ -19,6 +21,16 @@ export type SurveyQuestion = {
   max?: number;
   minLabel?: string;
   maxLabel?: string;
+  /** multiple 전용: 최대 선택 개수. 예) "최대 3개" → 3. 비우면 제한 없음 */
+  maxSelections?: number;
+  /** multiple 전용: 최소 선택 개수. 비우면 required 여부만 적용 */
+  minSelections?: number;
+  /** ranking 전용: 순위 개수(1순위~N순위). 기본 3. 선택지는 options 사용 */
+  rankCount?: number;
+  /** matrix 전용: 행(평가 항목) 목록. 각 행마다 열 중 하나를 선택 */
+  rows?: string[];
+  /** matrix 전용: 열(선택지) 목록 */
+  columns?: string[];
   /** file 전용: 허용 확장자 목록. 예: [".pdf", ".xlsx"] */
   accept?: string[];
   /** file 전용: 파일 1개당 최대 용량(MB). 기본 20 */

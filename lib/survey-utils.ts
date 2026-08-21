@@ -38,8 +38,9 @@ export function validateAnswers(
     }
 
     if (isEmptyAnswer(value)) {
-      clean[question.id] =
-        question.type === "multiple" || question.type === "file" ? [] : "";
+      if (question.type === "multiple" || question.type === "file") clean[question.id] = [];
+      else if (question.type === "ranking" || question.type === "matrix") clean[question.id] = {};
+      else clean[question.id] = "";
       continue;
     }
 
@@ -53,7 +54,62 @@ export function validateAnswers(
       if (!Array.isArray(value) || !value.every((v) => typeof v === "string")) return { ok: false, message: `"${question.title}" 응답 형식이 올바르지 않습니다.` };
       const invalid = value.find((v) => question.options && !question.options.includes(v));
       if (invalid) return { ok: false, message: `"${question.title}" 선택지가 올바르지 않습니다.` };
-      clean[question.id] = value;
+      const unique = Array.from(new Set(value));
+      if (question.maxSelections && unique.length > question.maxSelections) {
+        return { ok: false, message: `"${question.title}"은 최대 ${question.maxSelections}개까지 선택할 수 있습니다.` };
+      }
+      if (question.minSelections && unique.length > 0 && unique.length < question.minSelections) {
+        return { ok: false, message: `"${question.title}"은 최소 ${question.minSelections}개를 선택해 주세요.` };
+      }
+      clean[question.id] = unique;
+    }
+
+    if (question.type === "ranking") {
+      if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return { ok: false, message: `"${question.title}" 응답 형식이 올바르지 않습니다.` };
+      }
+      const entries = Object.entries(value as Record<string, unknown>);
+      const rankCount = question.rankCount ?? 3;
+      const allowedLabels = Array.from({ length: rankCount }, (_, i) => `${i + 1}순위`);
+      const seen = new Set<string>();
+      const ordered: Record<string, string> = {};
+      for (const label of allowedLabels) {
+        const picked = (value as Record<string, unknown>)[label];
+        if (picked === undefined || picked === null || picked === "") continue;
+        if (typeof picked !== "string") return { ok: false, message: `"${question.title}" 응답 형식이 올바르지 않습니다.` };
+        if (question.options && !question.options.includes(picked)) return { ok: false, message: `"${question.title}" 선택지가 올바르지 않습니다.` };
+        if (seen.has(picked)) return { ok: false, message: `"${question.title}"에서 같은 항목을 중복 선택할 수 없습니다.` };
+        seen.add(picked);
+        ordered[label] = picked;
+      }
+      const invalidLabel = entries.find(([label]) => !allowedLabels.includes(label));
+      if (invalidLabel) return { ok: false, message: `"${question.title}" 순위 정보가 올바르지 않습니다.` };
+      clean[question.id] = ordered;
+    }
+
+    if (question.type === "matrix") {
+      if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return { ok: false, message: `"${question.title}" 응답 형식이 올바르지 않습니다.` };
+      }
+      const rows = question.rows ?? [];
+      const columns = question.columns ?? [];
+      const ordered: Record<string, string> = {};
+      for (const [row, picked] of Object.entries(value as Record<string, unknown>)) {
+        if (!rows.includes(row)) return { ok: false, message: `"${question.title}" 항목 정보가 올바르지 않습니다.` };
+        if (picked === undefined || picked === null || picked === "") continue;
+        if (typeof picked !== "string" || !columns.includes(picked)) {
+          return { ok: false, message: `"${question.title}" 선택지가 올바르지 않습니다.` };
+        }
+        ordered[row] = picked;
+      }
+      if (question.required) {
+        const missing = rows.filter((row) => !ordered[row]);
+        if (missing.length > 0) return { ok: false, message: `"${question.title}"의 모든 항목에 답해 주세요.` };
+      }
+      // 행 순서대로 재정렬
+      const sorted: Record<string, string> = {};
+      for (const row of rows) if (ordered[row]) sorted[row] = ordered[row];
+      clean[question.id] = sorted;
     }
 
     if (question.type === "number") {
@@ -158,6 +214,8 @@ function isEmptyAnswer(value: unknown): boolean {
   if (value === undefined || value === null) return true;
   if (typeof value === "string" && value.trim() === "") return true;
   if (Array.isArray(value) && value.length === 0) return true;
+  // 순위·행렬 답변(객체)이 비어 있는 경우
+  if (typeof value === "object" && !Array.isArray(value) && Object.keys(value as object).length === 0) return true;
   return false;
 }
 

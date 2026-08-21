@@ -18,6 +18,8 @@ const PASSWORD_STORAGE_KEY = "turas_admin_password";
 const questionTypes: { value: QuestionType; label: string }[] = [
   { value: "single", label: "단일선택" },
   { value: "multiple", label: "복수선택" },
+  { value: "ranking", label: "순위선택" },
+  { value: "matrix", label: "행렬형(표)" },
   { value: "text", label: "단답형" },
   { value: "textarea", label: "장문형" },
   { value: "number", label: "숫자형" },
@@ -557,7 +559,7 @@ function QuestionEditor({
           필수 문항
         </label>
 
-        {(question.type === "single" || question.type === "multiple") && (
+        {(question.type === "single" || question.type === "multiple" || question.type === "ranking") && (
           <label className="builder-col-span">
             선택지, 줄바꿈 기준
             <textarea
@@ -569,6 +571,77 @@ function QuestionEditor({
               }
             />
           </label>
+        )}
+
+        {question.type === "multiple" && (
+          <>
+            <label>
+              최대 선택 개수 (0 = 제한 없음)
+              <input
+                type="number"
+                min={0}
+                value={question.maxSelections ?? 0}
+                onChange={(event) => {
+                  const n = Number(event.target.value);
+                  onChange({ maxSelections: n > 0 ? n : undefined });
+                }}
+              />
+            </label>
+            <label>
+              최소 선택 개수 (0 = 없음)
+              <input
+                type="number"
+                min={0}
+                value={question.minSelections ?? 0}
+                onChange={(event) => {
+                  const n = Number(event.target.value);
+                  onChange({ minSelections: n > 0 ? n : undefined });
+                }}
+              />
+            </label>
+          </>
+        )}
+
+        {question.type === "ranking" && (
+          <label>
+            순위 개수 (예: 3 → 1·2·3순위)
+            <input
+              type="number"
+              min={1}
+              max={10}
+              value={question.rankCount ?? 3}
+              onChange={(event) => onChange({ rankCount: Math.max(1, Number(event.target.value)) })}
+            />
+          </label>
+        )}
+
+        {question.type === "matrix" && (
+          <>
+            <label className="builder-col-span">
+              행 (평가 항목), 줄바꿈 기준
+              <textarea
+                placeholder={"매출액\n고용 인원\n수출액"}
+                value={(question.rows || []).join("\n")}
+                onChange={(event) =>
+                  onChange({
+                    rows: event.target.value.split("\n").map((line) => line.trim()).filter(Boolean)
+                  })
+                }
+              />
+            </label>
+            <label className="builder-col-span">
+              열 (선택지), 줄바꿈 기준
+              <textarea
+                placeholder={"매우 낮음\n낮음\n보통\n높음\n매우 높음"}
+                value={(question.columns || []).join("\n")}
+                onChange={(event) =>
+                  onChange({
+                    columns: event.target.value.split("\n").map((line) => line.trim()).filter(Boolean)
+                  })
+                }
+              />
+            </label>
+          </>
         )}
 
         {(question.type === "text" || question.type === "textarea" || question.type === "number") && (
@@ -688,6 +761,11 @@ function normalizeQuestion(question: DraftQuestion): DraftQuestion {
     max: undefined,
     minLabel: undefined,
     maxLabel: undefined,
+    maxSelections: undefined,
+    minSelections: undefined,
+    rankCount: undefined,
+    rows: undefined,
+    columns: undefined,
     namePart: question.namePart,
     accept: undefined,
     maxSizeMB: undefined,
@@ -695,10 +773,35 @@ function normalizeQuestion(question: DraftQuestion): DraftQuestion {
     fileLabel: undefined
   } as DraftQuestion;
 
-  if (question.type === "single" || question.type === "multiple") {
+  if (question.type === "single") {
     return {
       ...base,
       options: question.options && question.options.length > 0 ? question.options : ["선택지 1", "선택지 2"]
+    };
+  }
+
+  if (question.type === "multiple") {
+    return {
+      ...base,
+      options: question.options && question.options.length > 0 ? question.options : ["선택지 1", "선택지 2"],
+      maxSelections: question.maxSelections,
+      minSelections: question.minSelections
+    };
+  }
+
+  if (question.type === "ranking") {
+    return {
+      ...base,
+      options: question.options && question.options.length > 0 ? question.options : ["선택지 1", "선택지 2", "선택지 3"],
+      rankCount: question.rankCount ?? 3
+    };
+  }
+
+  if (question.type === "matrix") {
+    return {
+      ...base,
+      rows: question.rows && question.rows.length > 0 ? question.rows : ["항목 1", "항목 2"],
+      columns: question.columns && question.columns.length > 0 ? question.columns : ["매우 낮음", "낮음", "보통", "높음", "매우 높음"]
     };
   }
 

@@ -5,8 +5,18 @@ import { useRouter } from "next/navigation";
 import type { SurveyConfig, SurveyQuestion, UploadedFile } from "@/lib/types";
 
 type Props = { config: SurveyConfig; token?: string };
-type AnswerValue = string | string[] | number | UploadedFile[];
+type AnswerValue = string | string[] | number | UploadedFile[] | Record<string, string>;
 type Answers = Record<string, AnswerValue>;
+
+/** 순위 라벨 만들기: ["1순위", "2순위", "3순위"] */
+function rankLabels(count: number): string[] {
+  return Array.from({ length: Math.max(1, count) }, (_, i) => `${i + 1}순위`);
+}
+
+/** 순위·행렬 답변처럼 객체형 값인지 확인 (배열/파일 제외) */
+function isMapValue(value: AnswerValue | undefined): value is Record<string, string> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
 export default function SurveyForm({ config, token }: Props) {
   const router = useRouter();
@@ -20,11 +30,43 @@ export default function SurveyForm({ config, token }: Props) {
     setAnswers((prev) => ({ ...prev, [questionId]: value }));
   }
 
-  function toggleMultiple(questionId: string, option: string) {
+  function toggleMultiple(questionId: string, option: string, maxSelections?: number) {
     setAnswers((prev) => {
       const current = Array.isArray(prev[questionId]) ? (prev[questionId] as string[]) : [];
-      const next = current.includes(option) ? current.filter((item) => item !== option) : [...current, option];
-      return { ...prev, [questionId]: next };
+      if (current.includes(option)) {
+        return { ...prev, [questionId]: current.filter((item) => item !== option) };
+      }
+      // 최대 개수 제한: 이미 꽉 찼으면 추가하지 않음
+      if (maxSelections && current.length >= maxSelections) {
+        return prev;
+      }
+      return { ...prev, [questionId]: [...current, option] };
+    });
+  }
+
+  /** 순위 문항: 해당 순위에 선택지 지정 (같은 선택지가 다른 순위에 있으면 제거, 순위 순서대로 정렬 저장) */
+  function setRankValue(questionId: string, labels: string[], label: string, option: string) {
+    setAnswers((prev) => {
+      const current = isMapValue(prev[questionId]) ? { ...(prev[questionId] as Record<string, string>) } : {};
+      for (const key of Object.keys(current)) {
+        if (current[key] === option) delete current[key];
+      }
+      if (option) current[label] = option;
+      else delete current[label];
+      const ordered: Record<string, string> = {};
+      for (const l of labels) if (current[l]) ordered[l] = current[l];
+      return { ...prev, [questionId]: ordered };
+    });
+  }
+
+  /** 행렬 문항: 특정 행에 열 값 지정 (행 순서대로 정렬 저장) */
+  function setMatrixCell(questionId: string, rows: string[], row: string, column: string) {
+    setAnswers((prev) => {
+      const current = isMapValue(prev[questionId]) ? { ...(prev[questionId] as Record<string, string>) } : {};
+      current[row] = column;
+      const ordered: Record<string, string> = {};
+      for (const r of rows) if (current[r]) ordered[r] = current[r];
+      return { ...prev, [questionId]: ordered };
     });
   }
 
@@ -37,19 +79,11 @@ export default function SurveyForm({ config, token }: Props) {
       return;
     }
 
-    // 필수 첨부 문항 확인 (브라우저 기본 검증이 파일 문항에는 적용되지 않음)
-    const missingFile = config.sections
-      .flatMap((section) => section.questions)
-      .find(
-        (question) =>
-          question.type === "file" &&
-          question.required &&
-          (!Array.isArray(answers[question.id]) || (answers[question.id] as UploadedFile[]).length === 0)
-      );
-
-    if (missingFile) {
-      setError(`"${missingFile.title}" 문항에 파일을 첨부해 주세요.`);
-      document.getElementById(`q-${missingFile.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    // 브라우저 기본 검증이 닿지 않는 문항(파일·복수선택·순위·행렬) 확인
+    const problem = findAnswerProblem(config, answers);
+    if (problem) {
+      setError(problem.message);
+      document.getElementById(`q-${problem.questionId}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
       return;
     }
 
@@ -92,6 +126,8 @@ export default function SurveyForm({ config, token }: Props) {
               value={answers[question.id]}
               setAnswer={setAnswer}
               toggleMultiple={toggleMultiple}
+              setRankValue={setRankValue}
+              setMatrixCell={setMatrixCell}
               onUploadStart={() => setUploadingCount((n) => n + 1)}
               onUploadEnd={() => setUploadingCount((n) => Math.max(0, n - 1))}
             />
@@ -114,6 +150,8 @@ function QuestionField({
   value,
   setAnswer,
   toggleMultiple,
+  setRankValue,
+  setMatrixCell,
   onUploadStart,
   onUploadEnd
 }: {
@@ -121,10 +159,13 @@ function QuestionField({
   question: SurveyQuestion;
   value: AnswerValue;
   setAnswer: (questionId: string, value: AnswerValue) => void;
-  toggleMultiple: (questionId: string, option: string) => void;
+  toggleMultiple: (questionId: string, option: string, maxSelections?: number) => void;
+  setRankValue: (questionId: string, labels: string[], label: string, option: string) => void;
+  setMatrixCell: (questionId: string, rows: string[], row: string, column: string) => void;
   onUploadStart: () => void;
   onUploadEnd: () => void;
 }) {
+  const mapValue = isMapValue(value) ? value : {};
   return (
     <div className="question" id={`q-${question.id}`}>
       <div className="question-title">
@@ -145,13 +186,108 @@ function QuestionField({
       )}
 
       {question.type === "multiple" && (
-        <div className="option-list">
-          {question.options?.map((option) => (
-            <label className="option" key={option}>
-              <input type="checkbox" name={question.id} value={option} checked={Array.isArray(value) && (value as string[]).includes(option)} onChange={() => toggleMultiple(question.id, option)} />
-              <span>{option}</span>
-            </label>
-          ))}
+        <>
+          {(question.maxSelections || question.minSelections) && (
+            <div className="multi-counter">
+              {question.minSelections ? `최소 ${question.minSelections}개 · ` : ""}
+              {question.maxSelections ? `최대 ${question.maxSelections}개 선택` : "여러 개 선택 가능"}
+              {question.maxSelections && (
+                <span className="multi-count-badge">
+                  {(Array.isArray(value) ? (value as string[]).length : 0)}/{question.maxSelections}
+                </span>
+              )}
+            </div>
+          )}
+          <div className="option-list">
+            {question.options?.map((option) => {
+              const picked = Array.isArray(value) ? (value as string[]) : [];
+              const isChecked = picked.includes(option);
+              const isFull = Boolean(question.maxSelections) && picked.length >= (question.maxSelections as number);
+              const isDisabled = !isChecked && isFull;
+              return (
+                <label className={`option ${isDisabled ? "is-disabled" : ""}`} key={option}>
+                  <input
+                    type="checkbox"
+                    name={question.id}
+                    value={option}
+                    checked={isChecked}
+                    disabled={isDisabled}
+                    onChange={() => toggleMultiple(question.id, option, question.maxSelections)}
+                  />
+                  <span>{option}</span>
+                </label>
+              );
+            })}
+          </div>
+        </>
+      )}
+
+      {question.type === "ranking" && (() => {
+        const labels = rankLabels(question.rankCount ?? 3);
+        const options = question.options ?? [];
+        return (
+          <div className="rank-list">
+            <p className="rank-hint">중요한 순서대로 선택해 주세요. 같은 항목을 여러 순위에 중복 선택할 수 없습니다.</p>
+            {labels.map((label) => {
+              const chosenHere = mapValue[label] ?? "";
+              const chosenElsewhere = Object.entries(mapValue)
+                .filter(([key]) => key !== label)
+                .map(([, val]) => val);
+              return (
+                <div className="rank-row" key={label}>
+                  <span className="rank-badge">{label}</span>
+                  <select
+                    className="rank-select"
+                    value={chosenHere}
+                    onChange={(e) => setRankValue(question.id, labels, label, e.target.value)}
+                  >
+                    <option value="">선택 안 함</option>
+                    {options.map((option) => (
+                      <option key={option} value={option} disabled={chosenElsewhere.includes(option)}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
+
+      {question.type === "matrix" && (
+        <div className="matrix-wrap">
+          <table className="matrix-table">
+            <thead>
+              <tr>
+                <th className="matrix-corner" />
+                {question.columns?.map((column) => (
+                  <th key={column}>{column}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {question.rows?.map((row) => (
+                <tr key={row}>
+                  <th scope="row" className="matrix-row-label">{row}</th>
+                  {question.columns?.map((column) => (
+                    <td key={column}>
+                      <label className="matrix-cell">
+                        <input
+                          type="radio"
+                          name={`${question.id}__${row}`}
+                          value={column}
+                          checked={mapValue[row] === column}
+                          onChange={() => setMatrixCell(question.id, question.rows ?? [], row, column)}
+                        />
+                        <span className="matrix-dot" />
+                      </label>
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
 
@@ -342,11 +478,60 @@ function getInitialAnswers(config: SurveyConfig): Answers {
   const answers: Answers = {};
   for (const section of config.sections) {
     for (const question of section.questions) {
-      answers[question.id] =
-        question.type === "multiple" || question.type === "file" ? [] : "";
+      if (question.type === "multiple" || question.type === "file") answers[question.id] = [];
+      else if (question.type === "ranking" || question.type === "matrix") answers[question.id] = {};
+      else answers[question.id] = "";
     }
   }
   return answers;
+}
+
+/** 제출 전 클라이언트 검증: 문제가 있으면 해당 문항 id와 메시지를 반환 */
+function findAnswerProblem(config: SurveyConfig, answers: Answers): { questionId: string; message: string } | null {
+  for (const section of config.sections) {
+    for (const question of section.questions) {
+      const value = answers[question.id];
+
+      if (question.type === "file") {
+        const files = Array.isArray(value) ? (value as UploadedFile[]) : [];
+        if (question.required && files.length === 0) {
+          return { questionId: question.id, message: `"${question.title}" 문항에 파일을 첨부해 주세요.` };
+        }
+      }
+
+      if (question.type === "multiple") {
+        const picked = Array.isArray(value) ? (value as string[]) : [];
+        if (question.required && picked.length === 0) {
+          return { questionId: question.id, message: `"${question.title}" 문항을 하나 이상 선택해 주세요.` };
+        }
+        if (question.minSelections && picked.length > 0 && picked.length < question.minSelections) {
+          return { questionId: question.id, message: `"${question.title}" 문항은 최소 ${question.minSelections}개를 선택해 주세요.` };
+        }
+        if (question.maxSelections && picked.length > question.maxSelections) {
+          return { questionId: question.id, message: `"${question.title}" 문항은 최대 ${question.maxSelections}개까지 선택할 수 있습니다.` };
+        }
+      }
+
+      if (question.type === "ranking") {
+        const picked = isMapValue(value) ? value : {};
+        if (question.required && Object.keys(picked).length === 0) {
+          return { questionId: question.id, message: `"${question.title}" 문항에 최소 1순위를 선택해 주세요.` };
+        }
+      }
+
+      if (question.type === "matrix") {
+        const picked = isMapValue(value) ? value : {};
+        const rows = question.rows ?? [];
+        if (question.required) {
+          const unanswered = rows.filter((row) => !picked[row]);
+          if (unanswered.length > 0) {
+            return { questionId: question.id, message: `"${question.title}" 문항의 모든 항목에 답해 주세요.` };
+          }
+        }
+      }
+    }
+  }
+  return null;
 }
 
 function range(min: number, max: number) {
