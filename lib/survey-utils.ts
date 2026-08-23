@@ -93,22 +93,41 @@ export function validateAnswers(
       }
       const rows = question.rows ?? [];
       const columns = question.columns ?? [];
-      const ordered: Record<string, string> = {};
+      const multiple = Boolean(question.matrixMultiple);
+      const ordered: Record<string, string | string[]> = {};
+
       for (const [row, picked] of Object.entries(value as Record<string, unknown>)) {
         if (!rows.includes(row)) return { ok: false, message: `"${question.title}" 항목 정보가 올바르지 않습니다.` };
-        if (picked === undefined || picked === null || picked === "") continue;
-        if (typeof picked !== "string" || !columns.includes(picked)) {
-          return { ok: false, message: `"${question.title}" 선택지가 올바르지 않습니다.` };
+
+        if (multiple) {
+          if (picked === undefined || picked === null) continue;
+          if (!Array.isArray(picked) || !picked.every((v) => typeof v === "string")) {
+            return { ok: false, message: `"${question.title}" 응답 형식이 올바르지 않습니다.` };
+          }
+          const unique = Array.from(new Set(picked));
+          const invalid = unique.find((v) => !columns.includes(v));
+          if (invalid) return { ok: false, message: `"${question.title}" 선택지가 올바르지 않습니다.` };
+          if (unique.length > 0) ordered[row] = unique;
+        } else {
+          if (picked === undefined || picked === null || picked === "") continue;
+          if (typeof picked !== "string" || !columns.includes(picked)) {
+            return { ok: false, message: `"${question.title}" 선택지가 올바르지 않습니다.` };
+          }
+          ordered[row] = picked;
         }
-        ordered[row] = picked;
       }
+
       if (question.required) {
-        const missing = rows.filter((row) => !ordered[row]);
+        const missing = rows.filter((row) => {
+          const cell = ordered[row];
+          return Array.isArray(cell) ? cell.length === 0 : !cell;
+        });
         if (missing.length > 0) return { ok: false, message: `"${question.title}"의 모든 항목에 답해 주세요.` };
       }
+
       // 행 순서대로 재정렬
-      const sorted: Record<string, string> = {};
-      for (const row of rows) if (ordered[row]) sorted[row] = ordered[row];
+      const sorted: Record<string, string | string[]> = {};
+      for (const row of rows) if (ordered[row] !== undefined) sorted[row] = ordered[row];
       clean[question.id] = sorted;
     }
 

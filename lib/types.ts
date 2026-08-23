@@ -31,6 +31,8 @@ export type SurveyQuestion = {
   rows?: string[];
   /** matrix 전용: 열(선택지) 목록 */
   columns?: string[];
+  /** matrix 전용: 한 행에서 여러 열을 선택할 수 있게 함(체크박스). 기본 false(행별 1개, 라디오) */
+  matrixMultiple?: boolean;
   /** file 전용: 허용 확장자 목록. 예: [".pdf", ".xlsx"] */
   accept?: string[];
   /** file 전용: 파일 1개당 최대 용량(MB). 기본 20 */

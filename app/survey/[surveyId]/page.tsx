@@ -35,8 +35,8 @@ export default async function SurveyPage({ params, searchParams }: Props) {
         <div className="card-head">
           <div className="badge">{config.agency}</div>
           <h1 className="title">{config.title}</h1>
-          {config.subtitle && <p className="subtitle">{config.subtitle}</p>}
-          <p className="subtitle">{config.description}</p>
+          {config.subtitle && <p className="subtitle survey-description">{config.subtitle}</p>}
+          <p className="subtitle survey-description">{config.description}</p>
           {config.notice.length > 0 && (
             <div className="notice-box">
               <ul>{config.notice.map((item) => <li key={item}>{item}</li>)}</ul>

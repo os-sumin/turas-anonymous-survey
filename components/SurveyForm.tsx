@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import type { SurveyConfig, SurveyQuestion, UploadedFile } from "@/lib/types";
 
 type Props = { config: SurveyConfig; token?: string };
-type AnswerValue = string | string[] | number | UploadedFile[] | Record<string, string>;
+type MapValue = Record<string, string | string[]>;
+type AnswerValue = string | string[] | number | UploadedFile[] | MapValue;
 type Answers = Record<string, AnswerValue>;
 
 /** 순위 라벨 만들기: ["1순위", "2순위", "3순위"] */
@@ -14,7 +15,7 @@ function rankLabels(count: number): string[] {
 }
 
 /** 순위·행렬 답변처럼 객체형 값인지 확인 (배열/파일 제외) */
-function isMapValue(value: AnswerValue | undefined): value is Record<string, string> {
+function isMapValue(value: AnswerValue | undefined): value is MapValue {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
@@ -47,24 +48,38 @@ export default function SurveyForm({ config, token }: Props) {
   /** 순위 문항: 해당 순위에 선택지 지정 (같은 선택지가 다른 순위에 있으면 제거, 순위 순서대로 정렬 저장) */
   function setRankValue(questionId: string, labels: string[], label: string, option: string) {
     setAnswers((prev) => {
-      const current = isMapValue(prev[questionId]) ? { ...(prev[questionId] as Record<string, string>) } : {};
+      const current: MapValue = isMapValue(prev[questionId]) ? { ...prev[questionId] } : {};
       for (const key of Object.keys(current)) {
         if (current[key] === option) delete current[key];
       }
       if (option) current[label] = option;
       else delete current[label];
-      const ordered: Record<string, string> = {};
+      const ordered: MapValue = {};
       for (const l of labels) if (current[l]) ordered[l] = current[l];
       return { ...prev, [questionId]: ordered };
     });
   }
 
-  /** 행렬 문항: 특정 행에 열 값 지정 (행 순서대로 정렬 저장) */
+  /** 행렬(행별 1개): 특정 행에 열 값 지정 (행 순서대로 정렬 저장) */
   function setMatrixCell(questionId: string, rows: string[], row: string, column: string) {
     setAnswers((prev) => {
-      const current = isMapValue(prev[questionId]) ? { ...(prev[questionId] as Record<string, string>) } : {};
+      const current: MapValue = isMapValue(prev[questionId]) ? { ...prev[questionId] } : {};
       current[row] = column;
-      const ordered: Record<string, string> = {};
+      const ordered: MapValue = {};
+      for (const r of rows) if (current[r]) ordered[r] = current[r];
+      return { ...prev, [questionId]: ordered };
+    });
+  }
+
+  /** 행렬(행별 복수): 특정 행에서 열을 토글 (행 순서대로 정렬 저장) */
+  function toggleMatrixCell(questionId: string, rows: string[], row: string, column: string) {
+    setAnswers((prev) => {
+      const current: MapValue = isMapValue(prev[questionId]) ? { ...prev[questionId] } : {};
+      const picked = Array.isArray(current[row]) ? [...(current[row] as string[])] : [];
+      const next = picked.includes(column) ? picked.filter((c) => c !== column) : [...picked, column];
+      if (next.length > 0) current[row] = next;
+      else delete current[row];
+      const ordered: MapValue = {};
       for (const r of rows) if (current[r]) ordered[r] = current[r];
       return { ...prev, [questionId]: ordered };
     });
@@ -128,6 +143,7 @@ export default function SurveyForm({ config, token }: Props) {
               toggleMultiple={toggleMultiple}
               setRankValue={setRankValue}
               setMatrixCell={setMatrixCell}
+              toggleMatrixCell={toggleMatrixCell}
               onUploadStart={() => setUploadingCount((n) => n + 1)}
               onUploadEnd={() => setUploadingCount((n) => Math.max(0, n - 1))}
             />
@@ -152,6 +168,7 @@ function QuestionField({
   toggleMultiple,
   setRankValue,
   setMatrixCell,
+  toggleMatrixCell,
   onUploadStart,
   onUploadEnd
 }: {
@@ -162,6 +179,7 @@ function QuestionField({
   toggleMultiple: (questionId: string, option: string, maxSelections?: number) => void;
   setRankValue: (questionId: string, labels: string[], label: string, option: string) => void;
   setMatrixCell: (questionId: string, rows: string[], row: string, column: string) => void;
+  toggleMatrixCell: (questionId: string, rows: string[], row: string, column: string) => void;
   onUploadStart: () => void;
   onUploadEnd: () => void;
 }) {
@@ -257,7 +275,10 @@ function QuestionField({
 
       {question.type === "matrix" && (
         <div className="matrix-wrap">
-          <table className="matrix-table">
+          {question.matrixMultiple && (
+            <p className="matrix-hint">각 항목마다 해당하는 것을 모두 선택할 수 있습니다.</p>
+          )}
+          <table className={`matrix-table ${question.matrixMultiple ? "is-multiple" : ""}`}>
             <thead>
               <tr>
                 <th className="matrix-corner" />
@@ -267,25 +288,39 @@ function QuestionField({
               </tr>
             </thead>
             <tbody>
-              {question.rows?.map((row) => (
-                <tr key={row}>
-                  <th scope="row" className="matrix-row-label">{row}</th>
-                  {question.columns?.map((column) => (
-                    <td key={column}>
-                      <label className="matrix-cell">
-                        <input
-                          type="radio"
-                          name={`${question.id}__${row}`}
-                          value={column}
-                          checked={mapValue[row] === column}
-                          onChange={() => setMatrixCell(question.id, question.rows ?? [], row, column)}
-                        />
-                        <span className="matrix-dot" />
-                      </label>
-                    </td>
-                  ))}
-                </tr>
-              ))}
+              {question.rows?.map((row) => {
+                const cell = mapValue[row];
+                const rowPicked = Array.isArray(cell) ? cell : cell ? [cell] : [];
+                return (
+                  <tr key={row}>
+                    <th scope="row" className="matrix-row-label">{row}</th>
+                    {question.columns?.map((column) => (
+                      <td key={column}>
+                        <label className="matrix-cell">
+                          {question.matrixMultiple ? (
+                            <input
+                              type="checkbox"
+                              name={`${question.id}__${row}`}
+                              value={column}
+                              checked={rowPicked.includes(column)}
+                              onChange={() => toggleMatrixCell(question.id, question.rows ?? [], row, column)}
+                            />
+                          ) : (
+                            <input
+                              type="radio"
+                              name={`${question.id}__${row}`}
+                              value={column}
+                              checked={cell === column}
+                              onChange={() => setMatrixCell(question.id, question.rows ?? [], row, column)}
+                            />
+                          )}
+                          <span className="matrix-dot" />
+                        </label>
+                      </td>
+                    ))}
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -523,7 +558,10 @@ function findAnswerProblem(config: SurveyConfig, answers: Answers): { questionId
         const picked = isMapValue(value) ? value : {};
         const rows = question.rows ?? [];
         if (question.required) {
-          const unanswered = rows.filter((row) => !picked[row]);
+          const unanswered = rows.filter((row) => {
+            const cell = picked[row];
+            return Array.isArray(cell) ? cell.length === 0 : !cell;
+          });
           if (unanswered.length > 0) {
             return { questionId: question.id, message: `"${question.title}" 문항의 모든 항목에 답해 주세요.` };
           }

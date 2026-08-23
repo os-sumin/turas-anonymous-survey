@@ -62,6 +62,9 @@ export default function SurveyBuilder() {
   const [saving, setSaving] = useState(false);
   const [surveyList, setSurveyList] = useState<SurveyListItem[]>([]);
   const [showList, setShowList] = useState(false);
+  const [origin, setOrigin] = useState("");
+
+  const shareUrl = origin ? `${origin}/survey/${survey.id}` : `/survey/${survey.id}`;
 
   const selectedSection =
     survey.sections.find((section) => section.id === selectedSectionId) || survey.sections[0];
@@ -71,6 +74,7 @@ export default function SurveyBuilder() {
   useEffect(() => {
     const stored = sessionStorage.getItem(PASSWORD_STORAGE_KEY);
     if (stored) setPassword(stored);
+    setOrigin(window.location.origin);
   }, []);
 
   useEffect(() => {
@@ -270,6 +274,11 @@ export default function SurveyBuilder() {
     showToast("JSON이 복사되었습니다.");
   }
 
+  async function copyShareUrl() {
+    await navigator.clipboard.writeText(shareUrl);
+    showToast("응답 링크가 복사되었습니다.");
+  }
+
   function downloadConfig() {
     const blob = new Blob([configText], { type: "application/json;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -384,6 +393,23 @@ export default function SurveyBuilder() {
         <section className="builder-main">
           <div className="builder-card">
             <h1>설문 기본정보</h1>
+
+            <div className="share-link-box">
+              <div className="share-link-head">
+                <span className="share-link-label">응답자용 링크</span>
+                <span className="share-link-note">저장 후 접속할 수 있어요. 설문 ID를 바꾸면 링크도 바뀝니다.</span>
+              </div>
+              <div className="share-link-row">
+                <input className="share-link-input" value={shareUrl} readOnly onFocus={(e) => e.target.select()} />
+                <button className="builder-btn secondary" type="button" onClick={copyShareUrl}>
+                  링크 복사
+                </button>
+                <a className="builder-btn primary" href={`/survey/${survey.id}`} target="_blank" rel="noreferrer">
+                  열어보기
+                </a>
+              </div>
+            </div>
+
             <div className="builder-grid">
               <label>
                 설문 ID
@@ -483,7 +509,7 @@ export default function SurveyBuilder() {
           <div className="preview-card">
             <div className="preview-badge">{survey.agency}</div>
             <h3>{survey.title}</h3>
-            <p>{survey.description}</p>
+            <p className="survey-description">{survey.description}</p>
             {survey.sections.map((section) => (
               <div className="preview-section" key={section.id}>
                 <strong>{section.title}</strong>
@@ -641,6 +667,14 @@ function QuestionEditor({
                 }
               />
             </label>
+            <label className="builder-check builder-col-span">
+              <input
+                type="checkbox"
+                checked={Boolean(question.matrixMultiple)}
+                onChange={(event) => onChange({ matrixMultiple: event.target.checked })}
+              />
+              행별 복수 선택 허용 (한 항목에서 여러 개 선택)
+            </label>
           </>
         )}
 
@@ -766,6 +800,7 @@ function normalizeQuestion(question: DraftQuestion): DraftQuestion {
     rankCount: undefined,
     rows: undefined,
     columns: undefined,
+    matrixMultiple: undefined,
     namePart: question.namePart,
     accept: undefined,
     maxSizeMB: undefined,
@@ -801,7 +836,8 @@ function normalizeQuestion(question: DraftQuestion): DraftQuestion {
     return {
       ...base,
       rows: question.rows && question.rows.length > 0 ? question.rows : ["항목 1", "항목 2"],
-      columns: question.columns && question.columns.length > 0 ? question.columns : ["매우 낮음", "낮음", "보통", "높음", "매우 높음"]
+      columns: question.columns && question.columns.length > 0 ? question.columns : ["매우 낮음", "낮음", "보통", "높음", "매우 높음"],
+      matrixMultiple: question.matrixMultiple
     };
   }
 
