@@ -33,6 +33,8 @@ export type SurveyQuestion = {
   columns?: string[];
   /** matrix 전용: 한 행에서 여러 열을 선택할 수 있게 함(체크박스). 기본 false(행별 1개, 라디오) */
   matrixMultiple?: boolean;
+  /** matrix 전용: 필수라도 일부 행을 비워둘 수 있게 허용(최소 1개 셀만 선택하면 통과). 기본 false(모든 행 응답 필수) */
+  allowRowSkip?: boolean;
   /** file 전용: 허용 확장자 목록. 예: [".pdf", ".xlsx"] */
   accept?: string[];
   /** file 전용: 파일 1개당 최대 용량(MB). 기본 20 */

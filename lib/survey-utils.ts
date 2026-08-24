@@ -118,11 +118,15 @@ export function validateAnswers(
       }
 
       if (question.required) {
-        const missing = rows.filter((row) => {
+        const answered = rows.filter((row) => {
           const cell = ordered[row];
-          return Array.isArray(cell) ? cell.length === 0 : !cell;
+          return Array.isArray(cell) ? cell.length > 0 : Boolean(cell);
         });
-        if (missing.length > 0) return { ok: false, message: `"${question.title}"의 모든 항목에 답해 주세요.` };
+        if (question.allowRowSkip) {
+          if (answered.length === 0) return { ok: false, message: `"${question.title}"에서 최소 한 개는 선택해 주세요.` };
+        } else if (answered.length < rows.length) {
+          return { ok: false, message: `"${question.title}"의 모든 항목에 답해 주세요.` };
+        }
       }
 
       // 행 순서대로 재정렬

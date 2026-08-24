@@ -188,10 +188,6 @@ export default function SurveyBuilder() {
     setSurvey((prev) => ({ ...prev, [key]: value }));
   }
 
-  function updateNotice(value: string) {
-    updateSurvey("notice", value.split("\n").map((line) => line.trim()).filter(Boolean));
-  }
-
   function addSection() {
     const section: DraftSection = {
       id: `section_${survey.sections.length + 1}`,
@@ -433,7 +429,10 @@ export default function SurveyBuilder() {
               </label>
               <label className="builder-col-span">
                 안내문, 줄바꿈 기준
-                <textarea value={survey.notice.join("\n")} onChange={(event) => updateNotice(event.target.value)} />
+                <LineListTextarea
+                  value={survey.notice}
+                  onChange={(lines) => updateSurvey("notice", lines)}
+                />
               </label>
               <label>
                 응답 마감일시
@@ -543,8 +542,6 @@ function QuestionEditor({
   onChange: (patch: Partial<DraftQuestion>) => void;
   onRemove: () => void;
 }) {
-  const optionText = (question.options || []).join("\n");
-
   return (
     <div className="question-editor">
       <div className="question-editor-head">
@@ -588,13 +585,9 @@ function QuestionEditor({
         {(question.type === "single" || question.type === "multiple" || question.type === "ranking") && (
           <label className="builder-col-span">
             선택지, 줄바꿈 기준
-            <textarea
-              value={optionText}
-              onChange={(event) =>
-                onChange({
-                  options: event.target.value.split("\n").map((line) => line.trim()).filter(Boolean)
-                })
-              }
+            <LineListTextarea
+              value={question.options || []}
+              onChange={(lines) => onChange({ options: lines })}
             />
           </label>
         )}
@@ -645,26 +638,18 @@ function QuestionEditor({
           <>
             <label className="builder-col-span">
               행 (평가 항목), 줄바꿈 기준
-              <textarea
+              <LineListTextarea
                 placeholder={"매출액\n고용 인원\n수출액"}
-                value={(question.rows || []).join("\n")}
-                onChange={(event) =>
-                  onChange({
-                    rows: event.target.value.split("\n").map((line) => line.trim()).filter(Boolean)
-                  })
-                }
+                value={question.rows || []}
+                onChange={(lines) => onChange({ rows: lines })}
               />
             </label>
             <label className="builder-col-span">
               열 (선택지), 줄바꿈 기준
-              <textarea
+              <LineListTextarea
                 placeholder={"매우 낮음\n낮음\n보통\n높음\n매우 높음"}
-                value={(question.columns || []).join("\n")}
-                onChange={(event) =>
-                  onChange({
-                    columns: event.target.value.split("\n").map((line) => line.trim()).filter(Boolean)
-                  })
-                }
+                value={question.columns || []}
+                onChange={(lines) => onChange({ columns: lines })}
               />
             </label>
             <label className="builder-check builder-col-span">
@@ -674,6 +659,14 @@ function QuestionEditor({
                 onChange={(event) => onChange({ matrixMultiple: event.target.checked })}
               />
               행별 복수 선택 허용 (한 항목에서 여러 개 선택)
+            </label>
+            <label className="builder-check builder-col-span">
+              <input
+                type="checkbox"
+                checked={Boolean(question.allowRowSkip)}
+                onChange={(event) => onChange({ allowRowSkip: event.target.checked })}
+              />
+              미응답 행 허용 (필수여도 일부 행은 비워둘 수 있음)
             </label>
           </>
         )}
@@ -801,6 +794,7 @@ function normalizeQuestion(question: DraftQuestion): DraftQuestion {
     rows: undefined,
     columns: undefined,
     matrixMultiple: undefined,
+    allowRowSkip: undefined,
     namePart: question.namePart,
     accept: undefined,
     maxSizeMB: undefined,
@@ -837,7 +831,8 @@ function normalizeQuestion(question: DraftQuestion): DraftQuestion {
       ...base,
       rows: question.rows && question.rows.length > 0 ? question.rows : ["항목 1", "항목 2"],
       columns: question.columns && question.columns.length > 0 ? question.columns : ["매우 낮음", "낮음", "보통", "높음", "매우 높음"],
-      matrixMultiple: question.matrixMultiple
+      matrixMultiple: question.matrixMultiple,
+      allowRowSkip: question.allowRowSkip
     };
   }
 
@@ -862,6 +857,43 @@ function normalizeQuestion(question: DraftQuestion): DraftQuestion {
   }
 
   return base;
+}
+
+/**
+ * 줄바꿈으로 여러 항목을 입력받는 textarea.
+ * 편집 중에는 입력한 텍스트(빈 줄 포함)를 그대로 유지하고,
+ * 부모에는 앞뒤 공백을 없애고 빈 줄을 제거한 배열만 전달한다.
+ * (기존 방식은 타이핑 즉시 빈 줄을 지워 엔터로 새 항목 추가가 안 되는 버그가 있었음)
+ */
+function LineListTextarea({
+  value,
+  onChange,
+  placeholder
+}: {
+  value: string[];
+  onChange: (lines: string[]) => void;
+  placeholder?: string;
+}) {
+  const joined = value.join("\n");
+  const [text, setText] = useState(joined);
+
+  useEffect(() => {
+    const parsed = text.split("\n").map((line) => line.trim()).filter(Boolean).join("\n");
+    if (parsed !== joined) setText(joined);
+    // joined(외부 값)가 바뀔 때만 동기화한다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [joined]);
+
+  return (
+    <textarea
+      value={text}
+      placeholder={placeholder}
+      onChange={(event) => {
+        setText(event.target.value);
+        onChange(event.target.value.split("\n").map((line) => line.trim()).filter(Boolean));
+      }}
+    />
+  );
 }
 
 function toSlug(value: string) {

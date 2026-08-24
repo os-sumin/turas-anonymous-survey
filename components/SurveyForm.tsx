@@ -557,12 +557,17 @@ function findAnswerProblem(config: SurveyConfig, answers: Answers): { questionId
       if (question.type === "matrix") {
         const picked = isMapValue(value) ? value : {};
         const rows = question.rows ?? [];
+        const answeredRows = rows.filter((row) => {
+          const cell = picked[row];
+          return Array.isArray(cell) ? cell.length > 0 : Boolean(cell);
+        });
         if (question.required) {
-          const unanswered = rows.filter((row) => {
-            const cell = picked[row];
-            return Array.isArray(cell) ? cell.length === 0 : !cell;
-          });
-          if (unanswered.length > 0) {
+          if (question.allowRowSkip) {
+            // 일부 행은 비워도 되지만, 최소 한 행은 선택해야 함
+            if (answeredRows.length === 0) {
+              return { questionId: question.id, message: `"${question.title}" 문항에서 최소 한 개는 선택해 주세요.` };
+            }
+          } else if (answeredRows.length < rows.length) {
             return { questionId: question.id, message: `"${question.title}" 문항의 모든 항목에 답해 주세요.` };
           }
         }
