@@ -69,14 +69,27 @@ export function formatAnswer(value: unknown): string {
   if (isFileAnswer(value)) return value.map((file) => file.name).join(", ");
   if (Array.isArray(value)) return value.join(", ");
   if (typeof value === "number") return String(value);
-  // 순위·행렬 답변(객체): "1순위: A / 2순위: B" / "매출: 증가, 유지 / 고용: 감소" 형태
+  // 순위·행렬·입력형표 답변(객체)
+  //  - 순위/행렬: "1순위: A / 2순위: B", "매출: 증가, 유지 / 고용: 감소"
+  //  - 입력형 표(grid): "1차 [연도: 2021, 금액: 5] / 2차 [연도: 2022, 금액: 10]"
   if (typeof value === "object") {
     return Object.entries(value as Record<string, unknown>)
       .filter(([, v]) => {
         if (Array.isArray(v)) return v.length > 0;
+        if (v && typeof v === "object") return Object.keys(v).length > 0;
         return v !== undefined && v !== null && String(v).trim() !== "";
       })
-      .map(([key, v]) => `${key}: ${Array.isArray(v) ? v.join(", ") : v}`)
+      .map(([key, v]) => {
+        if (Array.isArray(v)) return `${key}: ${v.join(", ")}`;
+        if (v && typeof v === "object") {
+          const inner = Object.entries(v as Record<string, unknown>)
+            .filter(([, cell]) => cell !== undefined && cell !== null && String(cell).trim() !== "")
+            .map(([col, cell]) => `${col}: ${cell}`)
+            .join(", ");
+          return `${key} [${inner}]`;
+        }
+        return `${key}: ${v}`;
+      })
       .join(" / ");
   }
   return String(value);

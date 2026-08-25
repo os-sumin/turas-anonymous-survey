@@ -6,7 +6,8 @@ import type { SurveyConfig, SurveyQuestion, UploadedFile } from "@/lib/types";
 
 type Props = { config: SurveyConfig; token?: string };
 type MapValue = Record<string, string | string[]>;
-type AnswerValue = string | string[] | number | UploadedFile[] | MapValue;
+type GridValue = Record<string, Record<string, string>>;
+type AnswerValue = string | string[] | number | UploadedFile[] | MapValue | GridValue;
 type Answers = Record<string, AnswerValue>;
 
 /** 순위 라벨 만들기: ["1순위", "2순위", "3순위"] */
@@ -16,6 +17,11 @@ function rankLabels(count: number): string[] {
 
 /** 순위·행렬 답변처럼 객체형 값인지 확인 (배열/파일 제외) */
 function isMapValue(value: AnswerValue | undefined): value is MapValue {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** grid 답변(중첩 객체)인지 확인 */
+function isGridValue(value: AnswerValue | undefined): value is GridValue {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
@@ -85,6 +91,23 @@ export default function SurveyForm({ config, token }: Props) {
     });
   }
 
+  /** grid(입력형 표): 특정 행·열 칸에 값 입력 (행 순서대로 정렬, 빈 값은 정리) */
+  function setGridCell(questionId: string, rows: string[], row: string, column: string, cellValue: string) {
+    setAnswers((prev) => {
+      const raw = prev[questionId];
+      const current: GridValue =
+        raw && typeof raw === "object" && !Array.isArray(raw) ? JSON.parse(JSON.stringify(raw)) : {};
+      const rowObj = { ...(current[row] || {}) };
+      if (cellValue.trim() === "") delete rowObj[column];
+      else rowObj[column] = cellValue;
+      if (Object.keys(rowObj).length > 0) current[row] = rowObj;
+      else delete current[row];
+      const ordered: GridValue = {};
+      for (const r of rows) if (current[r]) ordered[r] = current[r];
+      return { ...prev, [questionId]: ordered };
+    });
+  }
+
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
@@ -144,6 +167,7 @@ export default function SurveyForm({ config, token }: Props) {
               setRankValue={setRankValue}
               setMatrixCell={setMatrixCell}
               toggleMatrixCell={toggleMatrixCell}
+              setGridCell={setGridCell}
               onUploadStart={() => setUploadingCount((n) => n + 1)}
               onUploadEnd={() => setUploadingCount((n) => Math.max(0, n - 1))}
             />
@@ -169,6 +193,7 @@ function QuestionField({
   setRankValue,
   setMatrixCell,
   toggleMatrixCell,
+  setGridCell,
   onUploadStart,
   onUploadEnd
 }: {
@@ -180,10 +205,12 @@ function QuestionField({
   setRankValue: (questionId: string, labels: string[], label: string, option: string) => void;
   setMatrixCell: (questionId: string, rows: string[], row: string, column: string) => void;
   toggleMatrixCell: (questionId: string, rows: string[], row: string, column: string) => void;
+  setGridCell: (questionId: string, rows: string[], row: string, column: string, cellValue: string) => void;
   onUploadStart: () => void;
   onUploadEnd: () => void;
 }) {
   const mapValue = isMapValue(value) ? value : {};
+  const gridValue: GridValue = isGridValue(value) ? (value as GridValue) : {};
   return (
     <div className="question" id={`q-${question.id}`}>
       <div className="question-title">
@@ -321,6 +348,56 @@ function QuestionField({
                   </tr>
                 );
               })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {question.type === "grid" && (
+        <div className="matrix-wrap">
+          <table className="matrix-table grid-table">
+            <thead>
+              <tr>
+                <th className="matrix-corner" />
+                {question.gridColumns?.map((col) => (
+                  <th key={col.label}>{col.label}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {question.rows?.map((row) => (
+                <tr key={row}>
+                  <th scope="row" className="matrix-row-label">{row}</th>
+                  {question.gridColumns?.map((col) => {
+                    const cell = gridValue[row]?.[col.label] ?? "";
+                    return (
+                      <td key={col.label} className="grid-cell">
+                        {col.type === "select" ? (
+                          <select
+                            className="grid-input"
+                            value={cell}
+                            onChange={(e) => setGridCell(question.id, question.rows ?? [], row, col.label, e.target.value)}
+                          >
+                            <option value="">선택</option>
+                            {col.options?.map((opt) => (
+                              <option key={opt} value={opt}>{opt}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <input
+                            className="grid-input"
+                            type={col.type === "number" ? "number" : "text"}
+                            inputMode={col.type === "number" ? "decimal" : undefined}
+                            placeholder={col.placeholder}
+                            value={cell}
+                            onChange={(e) => setGridCell(question.id, question.rows ?? [], row, col.label, e.target.value)}
+                          />
+                        )}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
@@ -514,7 +591,7 @@ function getInitialAnswers(config: SurveyConfig): Answers {
   for (const section of config.sections) {
     for (const question of section.questions) {
       if (question.type === "multiple" || question.type === "file") answers[question.id] = [];
-      else if (question.type === "ranking" || question.type === "matrix") answers[question.id] = {};
+      else if (question.type === "ranking" || question.type === "matrix" || question.type === "grid") answers[question.id] = {};
       else answers[question.id] = "";
     }
   }
@@ -551,6 +628,17 @@ function findAnswerProblem(config: SurveyConfig, answers: Answers): { questionId
         const picked = isMapValue(value) ? value : {};
         if (question.required && Object.keys(picked).length === 0) {
           return { questionId: question.id, message: `"${question.title}" 문항에 최소 1순위를 선택해 주세요.` };
+        }
+      }
+
+      if (question.type === "grid") {
+        const picked = isGridValue(value) ? value : {};
+        const filledCells = Object.values(picked).reduce(
+          (sum, rowObj) => sum + Object.values(rowObj || {}).filter((v) => String(v).trim() !== "").length,
+          0
+        );
+        if (question.required && filledCells === 0) {
+          return { questionId: question.id, message: `"${question.title}" 문항을 입력해 주세요.` };
         }
       }
 

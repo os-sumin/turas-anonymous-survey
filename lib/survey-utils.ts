@@ -39,7 +39,7 @@ export function validateAnswers(
 
     if (isEmptyAnswer(value)) {
       if (question.type === "multiple" || question.type === "file") clean[question.id] = [];
-      else if (question.type === "ranking" || question.type === "matrix") clean[question.id] = {};
+      else if (question.type === "ranking" || question.type === "matrix" || question.type === "grid") clean[question.id] = {};
       else clean[question.id] = "";
       continue;
     }
@@ -133,6 +133,50 @@ export function validateAnswers(
       const sorted: Record<string, string | string[]> = {};
       for (const row of rows) if (ordered[row] !== undefined) sorted[row] = ordered[row];
       clean[question.id] = sorted;
+    }
+
+    if (question.type === "grid") {
+      if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return { ok: false, message: `"${question.title}" 응답 형식이 올바르지 않습니다.` };
+      }
+      const rows = question.rows ?? [];
+      const cols = question.gridColumns ?? [];
+      const colByLabel = new Map(cols.map((c) => [c.label, c]));
+      const cleanGrid: Record<string, Record<string, string>> = {};
+      let filledCells = 0;
+
+      for (const [row, rowVal] of Object.entries(value as Record<string, unknown>)) {
+        if (!rows.includes(row)) return { ok: false, message: `"${question.title}" 항목 정보가 올바르지 않습니다.` };
+        if (rowVal === undefined || rowVal === null) continue;
+        if (typeof rowVal !== "object" || Array.isArray(rowVal)) {
+          return { ok: false, message: `"${question.title}" 응답 형식이 올바르지 않습니다.` };
+        }
+        const cleanRow: Record<string, string> = {};
+        for (const [colLabel, cell] of Object.entries(rowVal as Record<string, unknown>)) {
+          const col = colByLabel.get(colLabel);
+          if (!col) return { ok: false, message: `"${question.title}" 열 정보가 올바르지 않습니다.` };
+          if (cell === undefined || cell === null || String(cell).trim() === "") continue;
+          const text = String(cell).trim();
+          if (col.type === "select" && col.options && !col.options.includes(text)) {
+            return { ok: false, message: `"${question.title}" 선택지가 올바르지 않습니다.` };
+          }
+          if (col.type === "number" && !Number.isFinite(Number(text))) {
+            return { ok: false, message: `"${question.title}"의 "${col.label}"에는 숫자를 입력해 주세요.` };
+          }
+          cleanRow[colLabel] = text;
+          filledCells += 1;
+        }
+        if (Object.keys(cleanRow).length > 0) cleanGrid[row] = cleanRow;
+      }
+
+      if (question.required && filledCells === 0) {
+        return { ok: false, message: `"${question.title}" 문항을 입력해 주세요.` };
+      }
+
+      // 행 순서대로 재정렬
+      const sortedGrid: Record<string, Record<string, string>> = {};
+      for (const row of rows) if (cleanGrid[row]) sortedGrid[row] = cleanGrid[row];
+      clean[question.id] = sortedGrid;
     }
 
     if (question.type === "number") {

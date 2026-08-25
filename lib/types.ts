@@ -3,11 +3,23 @@ export type QuestionType =
   | "multiple"
   | "ranking"
   | "matrix"
+  | "grid"
   | "text"
   | "textarea"
   | "number"
   | "scale"
   | "file";
+
+/** 입력형 표(grid)의 열 정의. 열마다 입력 방식을 다르게 지정 */
+export interface GridColumn {
+  label: string;
+  /** text: 단답 입력, number: 숫자 입력, select: 드롭다운 선택 */
+  type: "text" | "number" | "select";
+  /** select일 때의 선택지 */
+  options?: string[];
+  /** 입력칸 안내문(placeholder). text/number 전용 */
+  placeholder?: string;
+}
 
 export type SurveyQuestion = {
   id: string;
@@ -35,6 +47,8 @@ export type SurveyQuestion = {
   matrixMultiple?: boolean;
   /** matrix 전용: 필수라도 일부 행을 비워둘 수 있게 허용(최소 1개 셀만 선택하면 통과). 기본 false(모든 행 응답 필수) */
   allowRowSkip?: boolean;
+  /** grid(입력형 표) 전용: 열(입력 필드) 정의. 행은 rows 사용 */
+  gridColumns?: GridColumn[];
   /** file 전용: 허용 확장자 목록. 예: [".pdf", ".xlsx"] */
   accept?: string[];
   /** file 전용: 파일 1개당 최대 용량(MB). 기본 20 */

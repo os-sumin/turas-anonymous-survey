@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import type { QuestionType, SurveyConfig, SurveyQuestion, SurveySection } from "@/lib/types";
+import type { GridColumn, QuestionType, SurveyConfig, SurveyQuestion, SurveySection } from "@/lib/types";
 
 type DraftQuestion = SurveyQuestion;
 type DraftSection = SurveySection;
@@ -20,6 +20,7 @@ const questionTypes: { value: QuestionType; label: string }[] = [
   { value: "multiple", label: "복수선택" },
   { value: "ranking", label: "순위선택" },
   { value: "matrix", label: "행렬형(표)" },
+  { value: "grid", label: "입력형 표(칸 입력)" },
   { value: "text", label: "단답형" },
   { value: "textarea", label: "장문형" },
   { value: "number", label: "숫자형" },
@@ -671,6 +672,82 @@ function QuestionEditor({
           </>
         )}
 
+        {question.type === "grid" && (
+          <>
+            <label className="builder-col-span">
+              행 (예: 회차·단계), 줄바꿈 기준
+              <LineListTextarea
+                placeholder={"1차\n2차\n3차"}
+                value={question.rows || []}
+                onChange={(lines) => onChange({ rows: lines })}
+              />
+            </label>
+            <div className="builder-col-span">
+              <div className="grid-cols-head">
+                <span>열 (입력 필드)</span>
+                <button
+                  type="button"
+                  className="builder-btn secondary small"
+                  onClick={() =>
+                    onChange({
+                      gridColumns: [...(question.gridColumns || []), { label: "새 열", type: "text" as const }]
+                    })
+                  }
+                >
+                  + 열 추가
+                </button>
+              </div>
+              {(question.gridColumns || []).length === 0 && (
+                <p className="question-desc">열을 추가해 주세요. 예) 연도(단답), 금액(단답), 구분(드롭다운: 실적·예상)</p>
+              )}
+              {(question.gridColumns || []).map((col, index) => {
+                const update = (patch: Partial<GridColumn>) => {
+                  const next = [...(question.gridColumns || [])];
+                  next[index] = { ...next[index], ...patch };
+                  onChange({ gridColumns: next });
+                };
+                const remove = () => {
+                  const next = (question.gridColumns || []).filter((_, i) => i !== index);
+                  onChange({ gridColumns: next });
+                };
+                return (
+                  <div className="grid-col-editor" key={index}>
+                    <div className="grid-col-row">
+                      <input
+                        className="grid-col-label"
+                        value={col.label}
+                        placeholder="열 이름 (예: 투자유치 연도)"
+                        onChange={(e) => update({ label: e.target.value })}
+                      />
+                      <select
+                        className="grid-col-type"
+                        value={col.type}
+                        onChange={(e) => update({ type: e.target.value as GridColumn["type"] })}
+                      >
+                        <option value="text">단답형</option>
+                        <option value="number">숫자</option>
+                        <option value="select">드롭다운</option>
+                      </select>
+                      <button type="button" className="builder-btn danger small" onClick={remove}>
+                        삭제
+                      </button>
+                    </div>
+                    {col.type === "select" && (
+                      <label className="grid-col-options">
+                        드롭다운 선택지, 줄바꿈 기준 (예: 실적 / 예상)
+                        <LineListTextarea
+                          value={col.options || []}
+                          onChange={(lines) => update({ options: lines })}
+                        />
+                      </label>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
+
         {(question.type === "text" || question.type === "textarea" || question.type === "number") && (
           <>
             <label className="builder-col-span">
@@ -795,6 +872,7 @@ function normalizeQuestion(question: DraftQuestion): DraftQuestion {
     columns: undefined,
     matrixMultiple: undefined,
     allowRowSkip: undefined,
+    gridColumns: undefined,
     namePart: question.namePart,
     accept: undefined,
     maxSizeMB: undefined,
@@ -833,6 +911,20 @@ function normalizeQuestion(question: DraftQuestion): DraftQuestion {
       columns: question.columns && question.columns.length > 0 ? question.columns : ["매우 낮음", "낮음", "보통", "높음", "매우 높음"],
       matrixMultiple: question.matrixMultiple,
       allowRowSkip: question.allowRowSkip
+    };
+  }
+
+  if (question.type === "grid") {
+    return {
+      ...base,
+      rows: question.rows && question.rows.length > 0 ? question.rows : ["1차", "2차", "3차"],
+      gridColumns:
+        question.gridColumns && question.gridColumns.length > 0
+          ? question.gridColumns
+          : [
+              { label: "연도", type: "text" as const },
+              { label: "금액", type: "text" as const }
+            ]
     };
   }
 
