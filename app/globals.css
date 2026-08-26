@@ -195,6 +195,33 @@ body {
 .submit-btn:hover, .exit-btn:hover { background: var(--primary-dark); }
 .submit-btn:disabled { background: #9ca3af; cursor: not-allowed; }
 
+/* 단계(스텝) 진행 표시 */
+.survey-progress { margin-bottom: 22px; }
+.survey-progress-top { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+.survey-progress-step { font-weight: 800; color: var(--primary); font-size: 15px; }
+.survey-progress-remain { color: var(--muted); font-size: 13px; }
+.survey-progress-bar { height: 10px; background: #e3ecf6; border-radius: 999px; overflow: hidden; }
+.survey-progress-fill { display: block; height: 100%; background: var(--primary); border-radius: 999px; transition: width .35s ease; }
+.survey-progress-dots { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px; }
+.survey-progress-dot {
+  width: 22px; height: 8px; border: 0; padding: 0; border-radius: 999px;
+  background: #d7e2ee; cursor: pointer; transition: background .2s, width .2s;
+}
+.survey-progress-dot.done { background: #a9bce0; }
+.survey-progress-dot.current { background: var(--primary); width: 34px; }
+
+/* 단계 이동 버튼 */
+.step-actions { justify-content: space-between; }
+.step-btn {
+  border: 0; padding: 15px 26px; min-width: 120px; border-radius: 999px;
+  font-size: 16px; font-weight: 800; cursor: pointer;
+}
+.step-btn.prev { background: #eaf0f8; color: var(--primary); }
+.step-btn.prev:hover { background: #dde7f4; }
+.step-btn.next { background: var(--primary); color: #fff; margin-left: auto; }
+.step-btn.next:hover { background: var(--primary-dark); }
+.step-btn:disabled { background: #9ca3af; color: #fff; cursor: not-allowed; }
+
 .error { color: var(--danger); background: #fff1f2; border: 1px solid #fecdd3; border-radius: 14px; padding: 12px 14px; margin-bottom: 16px; }
 
 .simple-card {
@@ -222,6 +249,9 @@ body {
   .scale-options { flex-wrap: wrap; }
   .actions { justify-content: stretch; }
   .submit-btn { width: 100%; }
+  .step-actions { flex-wrap: wrap; }
+  .step-btn.next, .step-actions .submit-btn { flex: 1; }
+  .step-btn.prev { flex: 0 0 auto; }
 }
 
 

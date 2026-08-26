@@ -32,6 +32,32 @@ export default function SurveyForm({ config, token }: Props) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [uploadingCount, setUploadingCount] = useState(0);
   const [error, setError] = useState("");
+  const [step, setStep] = useState(0);
+
+  const totalSteps = config.sections.length;
+  const isLastStep = step >= totalSteps - 1;
+  const currentSection = config.sections[step];
+
+  function goToStep(index: number) {
+    setError("");
+    setStep(index);
+    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function goNext() {
+    setError("");
+    if (uploadingCount > 0) {
+      setError("파일 업로드가 끝난 뒤 넘어가 주세요.");
+      return;
+    }
+    const problem = findSectionProblem(currentSection, answers);
+    if (problem) {
+      setError(problem.message);
+      document.getElementById(`q-${problem.questionId}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+      return;
+    }
+    goToStep(Math.min(step + 1, totalSteps - 1));
+  }
 
   function setAnswer(questionId: string, value: AnswerValue) {
     setAnswers((prev) => ({ ...prev, [questionId]: value }));
@@ -121,7 +147,12 @@ export default function SurveyForm({ config, token }: Props) {
     const problem = findAnswerProblem(config, answers);
     if (problem) {
       setError(problem.message);
-      document.getElementById(`q-${problem.questionId}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+      if (problem.sectionIndex !== step) {
+        setStep(problem.sectionIndex);
+      }
+      setTimeout(() => {
+        document.getElementById(`q-${problem.questionId}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+      }, 50);
       return;
     }
 
@@ -150,35 +181,72 @@ export default function SurveyForm({ config, token }: Props) {
 
   return (
     <form className="form-body" onSubmit={handleSubmit}>
+      {totalSteps > 1 && (
+        <div className="survey-progress">
+          <div className="survey-progress-top">
+            <span className="survey-progress-step">
+              {step + 1} / {totalSteps} 단계
+            </span>
+            <span className="survey-progress-remain">
+              {isLastStep ? "마지막 단계예요" : `${totalSteps - step - 1}개 단계 남음`}
+            </span>
+          </div>
+          <div className="survey-progress-bar" role="progressbar" aria-valuenow={step + 1} aria-valuemin={1} aria-valuemax={totalSteps}>
+            <span className="survey-progress-fill" style={{ width: `${((step + 1) / totalSteps) * 100}%` }} />
+          </div>
+          <div className="survey-progress-dots">
+            {config.sections.map((section, index) => (
+              <button
+                type="button"
+                key={section.id}
+                className={`survey-progress-dot ${index === step ? "current" : ""} ${index < step ? "done" : ""}`}
+                onClick={() => goToStep(index)}
+                aria-label={`${index + 1}단계: ${section.title}`}
+                title={section.title}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
       {error && <div className="error">{error}</div>}
 
-      {config.sections.map((section) => (
-        <section className="section" key={section.id}>
-          <h2 className="section-title">{section.title}</h2>
-          {section.description && <p className="section-description">{section.description}</p>}
-          {section.questions.map((question) => (
-            <QuestionField
-              key={question.id}
-              surveyId={config.id}
-              question={question}
-              value={answers[question.id]}
-              setAnswer={setAnswer}
-              toggleMultiple={toggleMultiple}
-              setRankValue={setRankValue}
-              setMatrixCell={setMatrixCell}
-              toggleMatrixCell={toggleMatrixCell}
-              setGridCell={setGridCell}
-              onUploadStart={() => setUploadingCount((n) => n + 1)}
-              onUploadEnd={() => setUploadingCount((n) => Math.max(0, n - 1))}
-            />
-          ))}
-        </section>
-      ))}
+      <section className="section" key={currentSection.id}>
+        <h2 className="section-title">{currentSection.title}</h2>
+        {currentSection.description && <p className="section-description">{currentSection.description}</p>}
+        {currentSection.questions.map((question) => (
+          <QuestionField
+            key={question.id}
+            surveyId={config.id}
+            question={question}
+            value={answers[question.id]}
+            setAnswer={setAnswer}
+            toggleMultiple={toggleMultiple}
+            setRankValue={setRankValue}
+            setMatrixCell={setMatrixCell}
+            toggleMatrixCell={toggleMatrixCell}
+            setGridCell={setGridCell}
+            onUploadStart={() => setUploadingCount((n) => n + 1)}
+            onUploadEnd={() => setUploadingCount((n) => Math.max(0, n - 1))}
+          />
+        ))}
+      </section>
 
-      <div className="actions">
-        <button className="submit-btn" type="submit" disabled={isSubmitting || uploadingCount > 0}>
-          {isSubmitting ? "제출 중..." : uploadingCount > 0 ? "파일 업로드 중..." : "제출하기"}
-        </button>
+      <div className="actions step-actions">
+        {step > 0 && (
+          <button className="step-btn prev" type="button" onClick={() => goToStep(step - 1)} disabled={isSubmitting}>
+            이전
+          </button>
+        )}
+        {!isLastStep ? (
+          <button className="step-btn next" type="button" onClick={goNext} disabled={uploadingCount > 0}>
+            {uploadingCount > 0 ? "파일 업로드 중..." : "다음"}
+          </button>
+        ) : (
+          <button className="submit-btn" type="submit" disabled={isSubmitting || uploadingCount > 0}>
+            {isSubmitting ? "제출 중..." : uploadingCount > 0 ? "파일 업로드 중..." : "제출하기"}
+          </button>
+        )}
       </div>
     </form>
   );
@@ -609,69 +677,88 @@ function getInitialAnswers(config: SurveyConfig): Answers {
   return answers;
 }
 
-/** 제출 전 클라이언트 검증: 문제가 있으면 해당 문항 id와 메시지를 반환 */
-function findAnswerProblem(config: SurveyConfig, answers: Answers): { questionId: string; message: string } | null {
-  for (const section of config.sections) {
-    for (const question of section.questions) {
-      const value = answers[question.id];
+/** 문항 1개 검증. 문제가 있으면 메시지, 없으면 null */
+function checkQuestion(question: SurveyQuestion, value: AnswerValue | undefined): string | null {
+  if (question.type === "file") {
+    const files = Array.isArray(value) ? (value as UploadedFile[]) : [];
+    if (question.required && files.length === 0) return `"${question.title}" 문항에 파일을 첨부해 주세요.`;
+    return null;
+  }
 
-      if (question.type === "file") {
-        const files = Array.isArray(value) ? (value as UploadedFile[]) : [];
-        if (question.required && files.length === 0) {
-          return { questionId: question.id, message: `"${question.title}" 문항에 파일을 첨부해 주세요.` };
-        }
-      }
+  if (question.type === "multiple") {
+    const picked = Array.isArray(value) ? (value as string[]) : [];
+    if (question.required && picked.length === 0) return `"${question.title}" 문항을 하나 이상 선택해 주세요.`;
+    if (question.minSelections && picked.length > 0 && picked.length < question.minSelections) {
+      return `"${question.title}" 문항은 최소 ${question.minSelections}개를 선택해 주세요.`;
+    }
+    if (question.maxSelections && picked.length > question.maxSelections) {
+      return `"${question.title}" 문항은 최대 ${question.maxSelections}개까지 선택할 수 있습니다.`;
+    }
+    return null;
+  }
 
-      if (question.type === "multiple") {
-        const picked = Array.isArray(value) ? (value as string[]) : [];
-        if (question.required && picked.length === 0) {
-          return { questionId: question.id, message: `"${question.title}" 문항을 하나 이상 선택해 주세요.` };
-        }
-        if (question.minSelections && picked.length > 0 && picked.length < question.minSelections) {
-          return { questionId: question.id, message: `"${question.title}" 문항은 최소 ${question.minSelections}개를 선택해 주세요.` };
-        }
-        if (question.maxSelections && picked.length > question.maxSelections) {
-          return { questionId: question.id, message: `"${question.title}" 문항은 최대 ${question.maxSelections}개까지 선택할 수 있습니다.` };
-        }
-      }
+  if (question.type === "ranking") {
+    const picked = isMapValue(value) ? value : {};
+    if (question.required && Object.keys(picked).length === 0) return `"${question.title}" 문항에 최소 1순위를 선택해 주세요.`;
+    return null;
+  }
 
-      if (question.type === "ranking") {
-        const picked = isMapValue(value) ? value : {};
-        if (question.required && Object.keys(picked).length === 0) {
-          return { questionId: question.id, message: `"${question.title}" 문항에 최소 1순위를 선택해 주세요.` };
-        }
-      }
+  if (question.type === "grid") {
+    const picked = isGridValue(value) ? value : {};
+    const filledCells = Object.values(picked).reduce(
+      (sum, rowObj) => sum + Object.values(rowObj || {}).filter((v) => String(v).trim() !== "").length,
+      0
+    );
+    if (question.required && filledCells === 0) return `"${question.title}" 문항을 입력해 주세요.`;
+    return null;
+  }
 
-      if (question.type === "grid") {
-        const picked = isGridValue(value) ? value : {};
-        const filledCells = Object.values(picked).reduce(
-          (sum, rowObj) => sum + Object.values(rowObj || {}).filter((v) => String(v).trim() !== "").length,
-          0
-        );
-        if (question.required && filledCells === 0) {
-          return { questionId: question.id, message: `"${question.title}" 문항을 입력해 주세요.` };
-        }
-      }
-
-      if (question.type === "matrix") {
-        const picked = isMapValue(value) ? value : {};
-        const rows = question.rows ?? [];
-        const answeredRows = rows.filter((row) => {
-          const cell = picked[row];
-          return Array.isArray(cell) ? cell.length > 0 : Boolean(cell);
-        });
-        if (question.required) {
-          if (question.allowRowSkip) {
-            // 일부 행은 비워도 되지만, 최소 한 행은 선택해야 함
-            if (answeredRows.length === 0) {
-              return { questionId: question.id, message: `"${question.title}" 문항에서 최소 한 개는 선택해 주세요.` };
-            }
-          } else if (answeredRows.length < rows.length) {
-            return { questionId: question.id, message: `"${question.title}" 문항의 모든 항목에 답해 주세요.` };
-          }
-        }
+  if (question.type === "matrix") {
+    const picked = isMapValue(value) ? value : {};
+    const rows = question.rows ?? [];
+    const answeredRows = rows.filter((row) => {
+      const cell = picked[row];
+      return Array.isArray(cell) ? cell.length > 0 : Boolean(cell);
+    });
+    if (question.required) {
+      if (question.allowRowSkip) {
+        if (answeredRows.length === 0) return `"${question.title}" 문항에서 최소 한 개는 선택해 주세요.`;
+      } else if (answeredRows.length < rows.length) {
+        return `"${question.title}" 문항의 모든 항목에 답해 주세요.`;
       }
     }
+    return null;
+  }
+
+  // single / text / textarea / number / scale — 필수 여부만 확인(형식은 서버가 재검증)
+  if (question.required) {
+    const isEmpty =
+      value === undefined ||
+      value === null ||
+      (typeof value === "string" && value.trim() === "") ||
+      (Array.isArray(value) && value.length === 0);
+    if (isEmpty) {
+      const verb = question.type === "single" || question.type === "scale" ? "선택" : "입력";
+      return `"${question.title}" 문항을 ${verb}해 주세요.`;
+    }
+  }
+  return null;
+}
+
+/** 한 섹션 안에서 첫 번째 문제를 찾음 */
+function findSectionProblem(section: SurveyConfig["sections"][number], answers: Answers): { questionId: string; message: string } | null {
+  for (const question of section.questions) {
+    const message = checkQuestion(question, answers[question.id]);
+    if (message) return { questionId: question.id, message };
+  }
+  return null;
+}
+
+/** 제출 전 클라이언트 검증: 전체에서 첫 번째 문제를 반환 (섹션 인덱스 포함) */
+function findAnswerProblem(config: SurveyConfig, answers: Answers): { questionId: string; message: string; sectionIndex: number } | null {
+  for (let i = 0; i < config.sections.length; i += 1) {
+    const problem = findSectionProblem(config.sections[i], answers);
+    if (problem) return { ...problem, sectionIndex: i };
   }
   return null;
 }
