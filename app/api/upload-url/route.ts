@@ -9,9 +9,14 @@ import {
   isSurveyClosed,
   sanitizeFilename
 } from "@/lib/survey-utils";
+import { getClientIp, hit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+// 업로드 URL 발급: 한 IP가 1분에 최대 30회
+const UPLOAD_LIMIT = 30;
+const UPLOAD_WINDOW_MS = 60 * 1000;
 
 /**
  * 브라우저가 Storage에 직접 업로드할 수 있는 임시 URL을 발급한다.
@@ -19,6 +24,14 @@ export const dynamic = "force-dynamic";
  */
 export async function POST(request: Request) {
   try {
+    const rl = hit(`upload:${getClientIp(request)}`, UPLOAD_LIMIT, UPLOAD_WINDOW_MS);
+    if (!rl.allowed) {
+      return NextResponse.json(
+        { ok: false, message: "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요." },
+        { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } }
+      );
+    }
+
     if (!isStorageConfigured()) {
       return NextResponse.json(
         { ok: false, message: "파일 업로드가 설정되지 않았습니다. (FIREBASE_STORAGE_BUCKET)" },

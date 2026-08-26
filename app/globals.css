@@ -137,13 +137,19 @@ body {
 .grid-input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(63,27,199,.08); }
 
 /* 입력형 표(grid) - 빌더 편집기 */
-.grid-cols-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; font-weight: 700; }
+.grid-cols-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; font-weight: 700; }
 .builder-btn.small { padding: 6px 12px; font-size: 13px; }
-.grid-col-editor { border: 1px solid var(--line); border-radius: 12px; padding: 12px; margin-bottom: 10px; background: #fbfdff; }
-.grid-col-row { display: flex; gap: 8px; align-items: center; }
-.grid-col-label { flex: 1; min-width: 0; border: 1px solid var(--line); border-radius: 10px; padding: 9px 11px; font: inherit; background: #fff; }
-.grid-col-type { border: 1px solid var(--line); border-radius: 10px; padding: 9px 11px; font: inherit; background: #fff; }
-.grid-col-options { display: block; margin-top: 10px; font-size: 13px; color: var(--muted); }
+.grid-col-editor { border: 1px solid var(--line); border-radius: 12px; padding: 14px; margin-bottom: 10px; background: #fbfdff; }
+.grid-col-editor-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.grid-col-num { font-weight: 800; color: var(--primary); font-size: 13px; }
+.grid-col-move { display: flex; gap: 6px; }
+.grid-col-field { display: block; font-size: 13px; color: var(--muted); margin-bottom: 10px; }
+.grid-col-field:last-child { margin-bottom: 0; }
+.grid-col-label, .grid-col-type {
+  display: block; width: 100%; box-sizing: border-box; margin-top: 5px;
+  border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; font: inherit; color: var(--text); background: #fff;
+}
+.grid-col-label:focus, .grid-col-type:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(63,27,199,.08); outline: none; }
 
 /* 설문·문항 이미지 (응답 화면) */
 .survey-images { display: grid; gap: 14px; margin: 16px 0 4px; }
@@ -171,6 +177,35 @@ body {
 .image-url-input { flex: 1; min-width: 140px; border: 1px solid var(--line); border-radius: 10px; padding: 9px 11px; font: inherit; background: #fff; }
 .image-hint { color: var(--muted); font-size: 12px; margin: 8px 0 0; }
 .preview-image { width: 100%; height: auto; border-radius: 10px; border: 1px solid var(--line); }
+
+/* 응답 수정 코드 UI */
+.done-box { text-align: center; padding: 20px 0; }
+.done-title { font-size: 22px; letter-spacing: -0.03em; margin: 6px 0 18px; }
+.loading-existing { text-align: center; color: var(--muted); padding: 40px 0; }
+.edit-mode-badge {
+  background: #fff7e6; border: 1px solid #ffe0a3; color: #8a5a00;
+  border-radius: 12px; padding: 11px 14px; margin-bottom: 18px; font-size: 14px; line-height: 1.5;
+}
+.edit-code-box {
+  background: #f4f8fd; border: 1px solid var(--line); border-radius: 16px;
+  padding: 20px; margin: 0 auto 18px; max-width: 460px; text-align: center;
+}
+.edit-code-label { font-weight: 700; margin: 0 0 12px; }
+.edit-code-value {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 22px; font-weight: 800;
+  letter-spacing: 2px; color: var(--primary); background: #fff;
+  border: 1px dashed var(--primary); border-radius: 12px; padding: 14px; word-break: break-all;
+}
+.edit-code-actions { display: flex; gap: 8px; justify-content: center; margin: 14px 0 10px; flex-wrap: wrap; }
+.edit-code-warn { font-size: 12.5px; color: var(--danger); line-height: 1.6; margin: 0; }
+
+.edit-entry { margin-top: 18px; padding-top: 16px; border-top: 1px dashed var(--line); text-align: center; }
+.edit-entry-toggle { background: none; border: 0; color: var(--primary); font-weight: 700; cursor: pointer; text-decoration: underline; font-size: 14px; }
+.edit-entry-form { text-align: left; }
+.edit-entry-label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+.edit-entry-row { display: flex; gap: 8px; }
+.edit-entry-input { flex: 1; min-width: 0; border: 1px solid var(--line); border-radius: 12px; padding: 11px 13px; font: inherit; background: #fff; }
+.edit-entry-input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(63,27,199,.08); outline: none; }
 
 @media (max-width: 640px) {
   .rank-row { grid-template-columns: 60px 1fr; }

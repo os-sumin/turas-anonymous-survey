@@ -1,6 +1,6 @@
 import JSZip from "jszip";
 import { NextResponse } from "next/server";
-import { isAdminAuthorized } from "@/lib/admin-auth";
+import { guardAdmin } from "@/lib/admin-auth";
 import { getBucket, isFirebaseConfigured, isStorageConfigured } from "@/lib/firebase-admin";
 import { loadSurveyConfig } from "@/lib/survey-store";
 import { listResponses, isFileAnswer } from "@/lib/response-store";
@@ -29,9 +29,8 @@ export const maxDuration = 300;
  *     기업명_매출발생여부_요약.xlsx
  */
 export async function GET(request: Request) {
-  if (!isAdminAuthorized(request)) {
-    return NextResponse.json({ ok: false, message: "관리자 비밀번호가 올바르지 않습니다." }, { status: 401 });
-  }
+  const denied = guardAdmin(request);
+    if (denied) return denied;
 
   try {
     if (!isFirebaseConfigured()) {

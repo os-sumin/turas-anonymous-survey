@@ -18,6 +18,8 @@ export interface SurveyImage {
 
 /** 입력형 표(grid)의 열 정의. 열마다 입력 방식을 다르게 지정 */
 export interface GridColumn {
+  /** 편집 중 안정적인 식별을 위한 내부 id(있으면 사용). 응답 저장에는 영향 없음 */
+  id?: string;
   label: string;
   /** text: 단답 입력, number: 숫자 입력, select: 드롭다운 선택 */
   type: "text" | "number" | "select";
@@ -93,6 +95,8 @@ export type SurveyConfig = {
   endAt?: string;
   /** true면 무기명 설문(식별정보 미수집). 기본 false */
   anonymous?: boolean;
+  /** true면 제출 후 '수정 코드'를 발급해, 응답자가 코드로 자기 응답을 다시 수정할 수 있게 함 */
+  allowEdit?: boolean;
   sections: SurveySection[];
 };
 

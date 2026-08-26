@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { isAdminAuthorized } from "@/lib/admin-auth";
+import { guardAdmin } from "@/lib/admin-auth";
 import { isFirebaseConfigured } from "@/lib/firebase-admin";
 import {
   deleteSurveyConfig,
@@ -15,7 +15,8 @@ export const dynamic = "force-dynamic";
 
 /** 설문 목록 조회, 또는 ?id=xxx 로 단건 조회 */
 export async function GET(request: Request) {
-  if (!isAdminAuthorized(request)) return unauthorized();
+  const denied = guardAdmin(request);
+  if (denied) return denied;
 
   try {
     const surveyId = new URL(request.url).searchParams.get("id");
@@ -37,7 +38,8 @@ export async function GET(request: Request) {
 
 /** 설문 저장 (같은 ID면 덮어쓰기) */
 export async function POST(request: Request) {
-  if (!isAdminAuthorized(request)) return unauthorized();
+  const denied = guardAdmin(request);
+  if (denied) return denied;
 
   try {
     if (!isFirebaseConfigured()) {
@@ -64,7 +66,8 @@ export async function POST(request: Request) {
 
 /** 설문 정의 삭제 (수집된 응답과 첨부파일은 보존) */
 export async function DELETE(request: Request) {
-  if (!isAdminAuthorized(request)) return unauthorized();
+  const denied = guardAdmin(request);
+  if (denied) return denied;
 
   try {
     if (!isFirebaseConfigured()) {
@@ -97,6 +100,3 @@ export async function DELETE(request: Request) {
   }
 }
 
-function unauthorized() {
-  return NextResponse.json({ ok: false, message: "관리자 비밀번호가 올바르지 않습니다." }, { status: 401 });
-}

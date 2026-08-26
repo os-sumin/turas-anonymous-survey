@@ -1,6 +1,6 @@
 import ExcelJS from "exceljs";
 import { NextResponse } from "next/server";
-import { isAdminAuthorized } from "@/lib/admin-auth";
+import { guardAdmin } from "@/lib/admin-auth";
 import { isFirebaseConfigured } from "@/lib/firebase-admin";
 import { loadSurveyConfig } from "@/lib/survey-store";
 import {
@@ -19,9 +19,8 @@ export const maxDuration = 60;
 
 /** 응답 전체를 엑셀(.xlsx)로 내려받기 */
 export async function GET(request: Request) {
-  if (!isAdminAuthorized(request)) {
-    return NextResponse.json({ ok: false, message: "관리자 비밀번호가 올바르지 않습니다." }, { status: 401 });
-  }
+  const denied = guardAdmin(request);
+    if (denied) return denied;
 
   try {
     if (!isFirebaseConfigured()) {

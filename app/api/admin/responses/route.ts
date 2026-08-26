@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { isAdminAuthorized } from "@/lib/admin-auth";
+import { guardAdmin } from "@/lib/admin-auth";
 import { isFirebaseConfigured } from "@/lib/firebase-admin";
 import { loadSurveyConfig } from "@/lib/survey-store";
 import {
@@ -17,9 +17,8 @@ export const dynamic = "force-dynamic";
 
 /** 특정 설문의 응답 현황 + 목록 */
 export async function GET(request: Request) {
-  if (!isAdminAuthorized(request)) {
-    return NextResponse.json({ ok: false, message: "관리자 비밀번호가 올바르지 않습니다." }, { status: 401 });
-  }
+  const denied = guardAdmin(request);
+    if (denied) return denied;
 
   try {
     if (!isFirebaseConfigured()) {

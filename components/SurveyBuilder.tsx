@@ -466,6 +466,14 @@ export default function SurveyBuilder() {
                 />
                 무기명 설문 (식별정보 미수집)
               </label>
+              <label className="builder-check">
+                <input
+                  type="checkbox"
+                  checked={Boolean(survey.allowEdit)}
+                  onChange={(event) => updateSurvey("allowEdit", event.target.checked)}
+                />
+                응답 수정 허용 (제출 후 수정 코드 발급)
+              </label>
             </div>
           </div>
 
@@ -721,67 +729,10 @@ function QuestionEditor({
               />
             </label>
             <div className="builder-col-span">
-              <div className="grid-cols-head">
-                <span>열 (입력 필드)</span>
-                <button
-                  type="button"
-                  className="builder-btn secondary small"
-                  onClick={() =>
-                    onChange({
-                      gridColumns: [...(question.gridColumns || []), { label: "새 열", type: "text" as const }]
-                    })
-                  }
-                >
-                  + 열 추가
-                </button>
-              </div>
-              {(question.gridColumns || []).length === 0 && (
-                <p className="question-desc">열을 추가해 주세요. 예) 연도(단답), 금액(단답), 구분(드롭다운: 실적·예상)</p>
-              )}
-              {(question.gridColumns || []).map((col, index) => {
-                const update = (patch: Partial<GridColumn>) => {
-                  const next = [...(question.gridColumns || [])];
-                  next[index] = { ...next[index], ...patch };
-                  onChange({ gridColumns: next });
-                };
-                const remove = () => {
-                  const next = (question.gridColumns || []).filter((_, i) => i !== index);
-                  onChange({ gridColumns: next });
-                };
-                return (
-                  <div className="grid-col-editor" key={index}>
-                    <div className="grid-col-row">
-                      <input
-                        className="grid-col-label"
-                        value={col.label}
-                        placeholder="열 이름 (예: 투자유치 연도)"
-                        onChange={(e) => update({ label: e.target.value })}
-                      />
-                      <select
-                        className="grid-col-type"
-                        value={col.type}
-                        onChange={(e) => update({ type: e.target.value as GridColumn["type"] })}
-                      >
-                        <option value="text">단답형</option>
-                        <option value="number">숫자</option>
-                        <option value="select">드롭다운</option>
-                      </select>
-                      <button type="button" className="builder-btn danger small" onClick={remove}>
-                        삭제
-                      </button>
-                    </div>
-                    {col.type === "select" && (
-                      <label className="grid-col-options">
-                        드롭다운 선택지, 줄바꿈 기준 (예: 실적 / 예상)
-                        <LineListTextarea
-                          value={col.options || []}
-                          onChange={(lines) => update({ options: lines })}
-                        />
-                      </label>
-                    )}
-                  </div>
-                );
-              })}
+              <GridColumnsEditor
+                columns={question.gridColumns || []}
+                onChange={(cols) => onChange({ gridColumns: cols })}
+              />
             </div>
           </>
         )}
@@ -958,10 +909,10 @@ function normalizeQuestion(question: DraftQuestion): DraftQuestion {
       rows: question.rows && question.rows.length > 0 ? question.rows : ["1차", "2차", "3차"],
       gridColumns:
         question.gridColumns && question.gridColumns.length > 0
-          ? question.gridColumns
+          ? question.gridColumns.map((col) => ({ ...col, id: col.id ?? makeColId() }))
           : [
-              { label: "연도", type: "text" as const },
-              { label: "금액", type: "text" as const }
+              { id: makeColId(), label: "연도", type: "text" as const },
+              { id: makeColId(), label: "금액", type: "text" as const }
             ]
     };
   }
@@ -1033,6 +984,93 @@ function toSlug(value: string) {
     .replace(/[^a-z0-9가-힣_-]+/gi, "_")
     .replace(/_+/g, "_")
     .replace(/^_+|_+$/g, "");
+}
+
+/** 새 열에 부여할 고정 id 생성 */
+function makeColId(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
+  return `col_${Math.random().toString(36).slice(2)}_${Date.now()}`;
+}
+
+/** 입력형 표(grid)의 열들을 편집하는 UI. 열 이름·유형·드롭다운 선택지를 자유롭게 수정 */
+function GridColumnsEditor({
+  columns,
+  onChange
+}: {
+  columns: GridColumn[];
+  onChange: (cols: GridColumn[]) => void;
+}) {
+  function update(index: number, patch: Partial<GridColumn>) {
+    onChange(columns.map((col, i) => (i === index ? { ...col, ...patch } : col)));
+  }
+  function remove(index: number) {
+    onChange(columns.filter((_, i) => i !== index));
+  }
+  function move(index: number, dir: -1 | 1) {
+    const target = index + dir;
+    if (target < 0 || target >= columns.length) return;
+    const next = [...columns];
+    [next[index], next[target]] = [next[target], next[index]];
+    onChange(next);
+  }
+  function add() {
+    onChange([...columns, { id: makeColId(), label: "", type: "text" }]);
+  }
+
+  return (
+    <div>
+      <div className="grid-cols-head">
+        <span>열 (입력 필드) — 각 열의 이름을 자유롭게 지을 수 있어요</span>
+        <button type="button" className="builder-btn secondary small" onClick={add}>
+          + 열 추가
+        </button>
+      </div>
+      {columns.length === 0 && (
+        <p className="question-desc">
+          열을 추가해 주세요. 예) 연도(단답), 금액(숫자), 구분(드롭다운: 실적·예상)
+        </p>
+      )}
+      {columns.map((col, index) => (
+        <div className="grid-col-editor" key={col.id ?? `idx-${index}`}>
+          <div className="grid-col-editor-head">
+            <span className="grid-col-num">열 {index + 1}</span>
+            <div className="grid-col-move">
+              <button type="button" className="builder-btn secondary small" onClick={() => move(index, -1)} disabled={index === 0}>←</button>
+              <button type="button" className="builder-btn secondary small" onClick={() => move(index, 1)} disabled={index === columns.length - 1}>→</button>
+              <button type="button" className="builder-btn danger small" onClick={() => remove(index)}>삭제</button>
+            </div>
+          </div>
+          <label className="grid-col-field">
+            열 이름
+            <input
+              className="grid-col-label"
+              value={col.label}
+              placeholder="예: 투자유치 연도 / 실적·예상 / 소요자금"
+              onChange={(e) => update(index, { label: e.target.value })}
+            />
+          </label>
+          <label className="grid-col-field">
+            입력 방식
+            <select
+              className="grid-col-type"
+              value={col.type}
+              onChange={(e) => update(index, { type: e.target.value as GridColumn["type"] })}
+            >
+              <option value="text">단답형</option>
+              <option value="number">숫자</option>
+              <option value="select">드롭다운</option>
+            </select>
+          </label>
+          {col.type === "select" && (
+            <label className="grid-col-field">
+              드롭다운 선택지, 줄바꿈 기준 (예: 실적 / 예상)
+              <LineListTextarea value={col.options || []} onChange={(lines) => update(index, { options: lines })} />
+            </label>
+          )}
+        </div>
+      ))}
+    </div>
+  );
 }
 
 /**

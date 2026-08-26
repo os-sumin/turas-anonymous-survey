@@ -295,3 +295,29 @@ export function hashToken(token: string): string | null {
   if (!secret || !token) return null;
   return crypto.createHmac("sha256", secret).update(token).digest("hex");
 }
+
+/** 혼동되는 문자(I, L, O, U, 0, 1)를 뺀 Crockford 계열 문자셋 */
+const EDIT_CODE_ALPHABET = "23456789ABCDEFGHJKMNPQRSTVWXYZ";
+
+/** 수정 코드 생성. 예: "A3F9-K2M7-P8QX-R5TV" (약 80비트, 링크로 전달) */
+export function generateEditCode(): string {
+  const bytes = crypto.randomBytes(16);
+  let raw = "";
+  for (let i = 0; i < 16; i += 1) {
+    raw += EDIT_CODE_ALPHABET[bytes[i] % EDIT_CODE_ALPHABET.length];
+  }
+  return raw.match(/.{1,4}/g)!.join("-");
+}
+
+/** 입력된 코드에서 대시·공백을 없애고 대문자로 정규화 (사용자가 어떻게 적든 동일 처리) */
+export function normalizeEditCode(code: string): string {
+  return (code || "").toUpperCase().replace(/[^0-9A-Z]/g, "");
+}
+
+/** 수정 코드 해시 (원본 코드는 저장하지 않고 이 해시로만 조회) */
+export function hashEditCode(code: string): string | null {
+  const secret = process.env.TOKEN_HASH_SECRET;
+  const normalized = normalizeEditCode(code);
+  if (!secret || !normalized) return null;
+  return crypto.createHmac("sha256", secret).update(`edit:${normalized}`).digest("hex");
+}

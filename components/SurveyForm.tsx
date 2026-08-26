@@ -1,10 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { SurveyConfig, SurveyQuestion, UploadedFile } from "@/lib/types";
 
-type Props = { config: SurveyConfig; token?: string };
+type Props = { config: SurveyConfig; token?: string; editCode?: string };
 type MapValue = Record<string, string | string[]>;
 type GridValue = Record<string, Record<string, string>>;
 type AnswerValue = string | string[] | number | UploadedFile[] | MapValue | GridValue;
@@ -25,7 +25,7 @@ function isGridValue(value: AnswerValue | undefined): value is GridValue {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-export default function SurveyForm({ config, token }: Props) {
+export default function SurveyForm({ config, token, editCode }: Props) {
   const router = useRouter();
   const initialAnswers = useMemo(() => getInitialAnswers(config), [config]);
   const [answers, setAnswers] = useState<Answers>(initialAnswers);
@@ -33,6 +33,45 @@ export default function SurveyForm({ config, token }: Props) {
   const [uploadingCount, setUploadingCount] = useState(0);
   const [error, setError] = useState("");
   const [step, setStep] = useState(0);
+
+  // 수정 모드: URL의 ?edit=코드로 진입하면 기존 응답을 불러온다
+  const [activeEditCode, setActiveEditCode] = useState<string>(editCode || "");
+  const [loadingExisting, setLoadingExisting] = useState<boolean>(Boolean(editCode));
+  const [issuedCode, setIssuedCode] = useState<string>(""); // 신규 제출 후 발급된 수정 코드
+  const [done, setDone] = useState<"new" | "edited" | "">("");
+  const [showCodeEntry, setShowCodeEntry] = useState(false);
+  const [codeInput, setCodeInput] = useState("");
+
+  useEffect(() => {
+    if (!editCode) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/response/load", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ survey_id: config.id, edit_code: editCode })
+        });
+        const data = (await res.json()) as { ok?: boolean; answers?: Answers; message?: string };
+        if (cancelled) return;
+        if (res.ok && data.ok && data.answers) {
+          // 저장된 답과 기본 틀을 병합 (문항이 늘었을 수도 있으므로)
+          setAnswers((prev) => ({ ...prev, ...data.answers }));
+          setActiveEditCode(editCode);
+        } else {
+          setError(data.message || "응답을 불러오지 못했습니다. 수정 코드를 확인해 주세요.");
+          setActiveEditCode("");
+        }
+      } catch {
+        if (!cancelled) setError("응답을 불러오는 중 오류가 발생했습니다.");
+      } finally {
+        if (!cancelled) setLoadingExisting(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [editCode, config.id]);
 
   const totalSteps = config.sections.length;
   const isLastStep = step >= totalSteps - 1;
@@ -162,13 +201,31 @@ export default function SurveyForm({ config, token }: Props) {
       const response = await fetch("/api/submit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ survey_id: config.id, answers, token })
+        body: JSON.stringify({
+          survey_id: config.id,
+          answers,
+          token,
+          edit_code: activeEditCode || undefined
+        })
       });
 
-      const result = (await response.json()) as { ok?: boolean; message?: string };
+      const result = (await response.json()) as { ok?: boolean; message?: string; edit_code?: string | null; edited?: boolean };
 
       if (!response.ok || !result.ok) {
         throw new Error(result.message || "응답 제출 중 오류가 발생했습니다.");
+      }
+
+      // 수정 코드가 발급됐거나(신규) 수정 완료면 인라인 완료 화면 표시
+      if (result.edit_code) {
+        setIssuedCode(result.edit_code);
+        setDone("new");
+        window.scrollTo({ top: 0, behavior: "smooth" });
+        return;
+      }
+      if (result.edited || activeEditCode) {
+        setDone("edited");
+        window.scrollTo({ top: 0, behavior: "smooth" });
+        return;
       }
 
       router.push(`/complete?surveyId=${encodeURIComponent(config.id)}`);
@@ -179,8 +236,66 @@ export default function SurveyForm({ config, token }: Props) {
     }
   }
 
+  // 제출/수정 완료 화면
+  if (done) {
+    const editLink =
+      issuedCode && typeof window !== "undefined"
+        ? `${window.location.origin}/survey/${config.id}?edit=${issuedCode}`
+        : "";
+    return (
+      <div className="form-body">
+        <div className="done-box">
+          <div className="icon-circle icon-success">✓</div>
+          <h2 className="done-title">{done === "edited" ? "응답이 수정되었습니다." : "응답이 제출되었습니다."}</h2>
+
+          {done === "new" && issuedCode && (
+            <div className="edit-code-box">
+              <p className="edit-code-label">📝 나중에 수정하려면 아래 코드가 필요해요</p>
+              <div className="edit-code-value">{issuedCode}</div>
+              <div className="edit-code-actions">
+                <button
+                  type="button"
+                  className="step-btn prev"
+                  onClick={() => navigator.clipboard.writeText(issuedCode).catch(() => {})}
+                >
+                  코드 복사
+                </button>
+                {editLink && (
+                  <button
+                    type="button"
+                    className="step-btn prev"
+                    onClick={() => navigator.clipboard.writeText(editLink).catch(() => {})}
+                  >
+                    수정 링크 복사
+                  </button>
+                )}
+              </div>
+              <p className="edit-code-warn">
+                이 코드는 다시 볼 수 없어요. 캡처하거나 메모해 두세요. 코드를 아는 사람은 이 응답을 열어볼 수 있으니 공유하지 마세요.
+              </p>
+            </div>
+          )}
+
+          <p className="message-sub">이 창은 닫으셔도 됩니다.</p>
+        </div>
+      </div>
+    );
+  }
+
+  // 수정 코드로 기존 응답을 불러오는 중
+  if (loadingExisting) {
+    return (
+      <div className="form-body">
+        <p className="loading-existing">이전에 제출한 응답을 불러오는 중입니다…</p>
+      </div>
+    );
+  }
+
   return (
     <form className="form-body" onSubmit={handleSubmit}>
+      {activeEditCode && (
+        <div className="edit-mode-badge">✏️ 수정 모드 — 이전에 제출한 응답을 고치고 있어요. 다시 제출하면 덮어써집니다.</div>
+      )}
       {totalSteps > 1 && (
         <div className="survey-progress">
           <div className="survey-progress-top">
@@ -248,6 +363,38 @@ export default function SurveyForm({ config, token }: Props) {
           </button>
         )}
       </div>
+
+      {config.allowEdit && !activeEditCode && step === 0 && (
+        <div className="edit-entry">
+          {!showCodeEntry ? (
+            <button type="button" className="edit-entry-toggle" onClick={() => setShowCodeEntry(true)}>
+              이미 응답하셨나요? 수정 코드로 답변 고치기
+            </button>
+          ) : (
+            <div className="edit-entry-form">
+              <label className="edit-entry-label">수정 코드 입력</label>
+              <div className="edit-entry-row">
+                <input
+                  className="edit-entry-input"
+                  placeholder="예: A3F9-K2M7-P8QX-R5TV"
+                  value={codeInput}
+                  onChange={(e) => setCodeInput(e.target.value)}
+                />
+                <button
+                  type="button"
+                  className="step-btn next"
+                  onClick={() => {
+                    const c = codeInput.trim();
+                    if (c) router.push(`/survey/${config.id}?edit=${encodeURIComponent(c)}`);
+                  }}
+                >
+                  불러오기
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </form>
   );
 }
