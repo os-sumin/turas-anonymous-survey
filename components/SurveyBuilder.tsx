@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import type { GridColumn, QuestionType, SurveyConfig, SurveyQuestion, SurveySection } from "@/lib/types";
+import type { GridColumn, QuestionType, SurveyConfig, SurveyImage, SurveyQuestion, SurveySection } from "@/lib/types";
 
 type DraftQuestion = SurveyQuestion;
 type DraftSection = SurveySection;
@@ -114,10 +114,18 @@ export default function SurveyBuilder() {
   async function saveSurvey() {
     setSaving(true);
     try {
+      const serialized = JSON.stringify({ config: survey });
+      // Firestore 문서 한도(약 1MB) 초과 방지 — 주로 업로드한 이미지(base64) 때문
+      const sizeKB = Math.round(new Blob([serialized]).size / 1024);
+      if (sizeKB > 950) {
+        showToast(`설문 용량이 너무 큽니다 (${sizeKB}KB). 이미지를 URL 링크로 바꾸거나 개수를 줄여 주세요.`);
+        setSaving(false);
+        return;
+      }
       const response = await fetch("/api/admin/surveys", {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-admin-password": password },
-        body: JSON.stringify({ config: survey })
+        body: serialized
       });
       const result = (await response.json()) as { ok?: boolean; message?: string };
 
@@ -435,6 +443,13 @@ export default function SurveyBuilder() {
                   onChange={(lines) => updateSurvey("notice", lines)}
                 />
               </label>
+              <div className="builder-col-span">
+                설문 이미지 · 공문 (선택)
+                <ImageManager
+                  images={survey.images || []}
+                  onChange={(next) => updateSurvey("images", next.length > 0 ? next : undefined)}
+                />
+              </div>
               <label>
                 응답 마감일시
                 <input
@@ -476,7 +491,11 @@ export default function SurveyBuilder() {
               </label>
               <label className="builder-col-span">
                 섹션 설명
-                <input value={selectedSection.description || ""} onChange={(event) => updateSection(selectedSection.id, { description: event.target.value })} />
+                <textarea
+                  className="builder-desc"
+                  value={selectedSection.description || ""}
+                  onChange={(event) => updateSection(selectedSection.id, { description: event.target.value })}
+                />
               </label>
             </div>
 
@@ -510,6 +529,14 @@ export default function SurveyBuilder() {
             <div className="preview-badge">{survey.agency}</div>
             <h3>{survey.title}</h3>
             <p className="survey-description">{survey.description}</p>
+            {survey.images && survey.images.length > 0 && (
+              <div className="survey-images">
+                {survey.images.map((image, index) => (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img key={`${image.url.slice(0, 24)}-${index}`} src={image.url} alt={image.caption || `이미지 ${index + 1}`} className="preview-image" />
+                ))}
+              </div>
+            )}
             {survey.sections.map((section) => (
               <div className="preview-section" key={section.id}>
                 <strong>{section.title}</strong>
@@ -572,8 +599,19 @@ function QuestionEditor({
         </label>
         <label className="builder-col-span">
           설명
-          <input value={question.description || ""} onChange={(event) => onChange({ description: event.target.value })} />
+          <textarea
+            className="builder-desc"
+            value={question.description || ""}
+            onChange={(event) => onChange({ description: event.target.value })}
+          />
         </label>
+        <div className="builder-col-span">
+          문항 이미지 (선택)
+          <ImageManager
+            images={question.images || []}
+            onChange={(next) => onChange({ images: next.length > 0 ? next : undefined })}
+          />
+        </div>
         <label className="builder-check">
           <input
             type="checkbox"
@@ -659,7 +697,7 @@ function QuestionEditor({
                 checked={Boolean(question.matrixMultiple)}
                 onChange={(event) => onChange({ matrixMultiple: event.target.checked })}
               />
-              행별 복수 선택 허용 (한 항목에서 여러 개 선택)
+              여러 칸 선택 허용 (행·열 모두 중복 선택 가능 — 각 칸을 자유롭게 체크)
             </label>
             <label className="builder-check builder-col-span">
               <input
@@ -995,4 +1033,150 @@ function toSlug(value: string) {
     .replace(/[^a-z0-9가-힣_-]+/gi, "_")
     .replace(/_+/g, "_")
     .replace(/^_+|_+$/g, "");
+}
+
+/**
+ * 이미지 파일을 캔버스로 리사이즈해서 data URL(JPEG/PNG)로 변환한다.
+ * Firestore 문서 용량(1MB)을 넘지 않도록 긴 변 기준 최대 1600px로 축소한다.
+ */
+async function fileToResizedDataUrl(file: File, maxEdge = 1600, quality = 0.72): Promise<string> {
+  const dataUrl: string = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error("파일을 읽지 못했습니다."));
+    reader.readAsDataURL(file);
+  });
+
+  // GIF·SVG 등은 리사이즈하지 않고 원본 data URL 사용
+  if (!/^data:image\/(png|jpeg|jpg|webp);/i.test(dataUrl)) return dataUrl;
+
+  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const el = new window.Image();
+    el.onload = () => resolve(el);
+    el.onerror = () => reject(new Error("이미지를 불러오지 못했습니다."));
+    el.src = dataUrl;
+  });
+
+  const scale = Math.min(1, maxEdge / Math.max(img.width, img.height));
+  if (scale >= 1 && dataUrl.length < 400_000) return dataUrl; // 이미 작으면 그대로
+
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(img.width * scale);
+  canvas.height = Math.round(img.height * scale);
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return dataUrl;
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL("image/jpeg", quality);
+}
+
+/** 이미지 목록 관리 UI (URL 붙여넣기 + 파일 업로드/리사이즈). 설문 설명·문항 공용 */
+function ImageManager({
+  images,
+  onChange
+}: {
+  images: SurveyImage[];
+  onChange: (next: SurveyImage[]) => void;
+}) {
+  const [urlInput, setUrlInput] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  function addUrl() {
+    const url = urlInput.trim();
+    if (!url) return;
+    onChange([...images, { url }]);
+    setUrlInput("");
+  }
+
+  async function addFiles(fileList: FileList | null) {
+    if (!fileList || fileList.length === 0) return;
+    setBusy(true);
+    try {
+      const added: SurveyImage[] = [];
+      for (const file of Array.from(fileList)) {
+        if (!file.type.startsWith("image/")) continue;
+        const url = await fileToResizedDataUrl(file);
+        added.push({ url, caption: "" });
+      }
+      if (added.length > 0) onChange([...images, ...added]);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function updateCaption(index: number, caption: string) {
+    const next = images.map((img, i) => (i === index ? { ...img, caption } : img));
+    onChange(next);
+  }
+
+  function remove(index: number) {
+    onChange(images.filter((_, i) => i !== index));
+  }
+
+  function move(index: number, dir: -1 | 1) {
+    const target = index + dir;
+    if (target < 0 || target >= images.length) return;
+    const next = [...images];
+    [next[index], next[target]] = [next[target], next[index]];
+    onChange(next);
+  }
+
+  return (
+    <div className="image-manager">
+      {images.length > 0 && (
+        <div className="image-list">
+          {images.map((image, index) => (
+            <div className="image-item" key={`${image.url.slice(0, 32)}-${index}`}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={image.url} alt={image.caption || `이미지 ${index + 1}`} className="image-thumb" />
+              <div className="image-meta">
+                <input
+                  className="image-caption"
+                  placeholder="이미지 설명(선택)"
+                  value={image.caption || ""}
+                  onChange={(e) => updateCaption(index, e.target.value)}
+                />
+                <div className="image-actions">
+                  <button type="button" className="builder-btn secondary small" onClick={() => move(index, -1)} disabled={index === 0}>↑</button>
+                  <button type="button" className="builder-btn secondary small" onClick={() => move(index, 1)} disabled={index === images.length - 1}>↓</button>
+                  <button type="button" className="builder-btn danger small" onClick={() => remove(index)}>삭제</button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="image-add-row">
+        <label className="builder-btn secondary small image-upload-btn">
+          {busy ? "처리 중…" : "이미지 업로드"}
+          <input
+            type="file"
+            accept="image/*"
+            multiple
+            style={{ display: "none" }}
+            disabled={busy}
+            onChange={(e) => {
+              void addFiles(e.target.files);
+              e.target.value = "";
+            }}
+          />
+        </label>
+        <input
+          className="image-url-input"
+          placeholder="또는 이미지 URL 붙여넣기"
+          value={urlInput}
+          onChange={(e) => setUrlInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              addUrl();
+            }
+          }}
+        />
+        <button type="button" className="builder-btn secondary small" onClick={addUrl}>URL 추가</button>
+      </div>
+      <p className="image-hint">업로드한 이미지는 긴 변 1600px로 자동 축소됩니다. 큰 공문은 URL 링크를 권장합니다.</p>
+    </div>
+  );
 }

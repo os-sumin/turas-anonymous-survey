@@ -218,6 +218,17 @@ function QuestionField({
         {question.required && <span className="required">*</span>}
       </div>
       {question.description && <p className="question-desc">{question.description}</p>}
+      {question.images && question.images.length > 0 && (
+        <div className="survey-images question-images">
+          {question.images.map((image, index) => (
+            <figure className="survey-image" key={`${image.url}-${index}`}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={image.url} alt={image.caption || `${question.title} 이미지 ${index + 1}`} />
+              {image.caption && <figcaption>{image.caption}</figcaption>}
+            </figure>
+          ))}
+        </div>
+      )}
 
       {question.type === "single" && (
         <div className="option-list">

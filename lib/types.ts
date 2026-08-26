@@ -10,6 +10,12 @@ export type QuestionType =
   | "scale"
   | "file";
 
+/** 설문 설명·문항에 붙이는 이미지(공문, 참고자료 등). url은 https 링크 또는 data: URL */
+export interface SurveyImage {
+  url: string;
+  caption?: string;
+}
+
 /** 입력형 표(grid)의 열 정의. 열마다 입력 방식을 다르게 지정 */
 export interface GridColumn {
   label: string;
@@ -26,6 +32,8 @@ export type SurveyQuestion = {
   type: QuestionType;
   title: string;
   description?: string;
+  /** 문항에 붙는 이미지 자료(참고 도표 등) */
+  images?: SurveyImage[];
   required?: boolean;
   options?: string[];
   placeholder?: string;
@@ -78,6 +86,8 @@ export type SurveyConfig = {
   title: string;
   subtitle?: string;
   description: string;
+  /** 설문 상단에 표시할 이미지(공문 스캔 등) */
+  images?: SurveyImage[];
   notice: string[];
   startAt?: string;
   endAt?: string;

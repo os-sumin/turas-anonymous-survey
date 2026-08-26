@@ -37,6 +37,17 @@ export default async function SurveyPage({ params, searchParams }: Props) {
           <h1 className="title">{config.title}</h1>
           {config.subtitle && <p className="subtitle survey-description">{config.subtitle}</p>}
           <p className="subtitle survey-description">{config.description}</p>
+          {config.images && config.images.length > 0 && (
+            <div className="survey-images">
+              {config.images.map((image, index) => (
+                <figure className="survey-image" key={`${image.url}-${index}`}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={image.url} alt={image.caption || `설문 이미지 ${index + 1}`} />
+                  {image.caption && <figcaption>{image.caption}</figcaption>}
+                </figure>
+              ))}
+            </div>
+          )}
           {config.notice.length > 0 && (
             <div className="notice-box">
               <ul>{config.notice.map((item) => <li key={item}>{item}</li>)}</ul>
