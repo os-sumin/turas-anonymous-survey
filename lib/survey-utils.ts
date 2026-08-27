@@ -84,6 +84,12 @@ export function validateAnswers(
       }
       const invalidLabel = entries.find(([label]) => !allowedLabels.includes(label));
       if (invalidLabel) return { ok: false, message: `"${question.title}" 순위 정보가 올바르지 않습니다.` };
+      if (question.required && question.requireAllRanks) {
+        const need = Math.min(rankCount, (question.options?.length ?? rankCount) || rankCount);
+        if (Object.keys(ordered).length < need) {
+          return { ok: false, message: `"${question.title}"의 모든 순위를 선택해 주세요.` };
+        }
+      }
       clean[question.id] = ordered;
     }
 
@@ -171,6 +177,12 @@ export function validateAnswers(
 
       if (question.required && filledCells === 0) {
         return { ok: false, message: `"${question.title}" 문항을 입력해 주세요.` };
+      }
+      if (question.required && question.requireAllCells && cols.length > 0) {
+        const incomplete = rows.some((row) => Object.keys(cleanGrid[row] || {}).length < cols.length);
+        if (incomplete) {
+          return { ok: false, message: `"${question.title}"의 모든 칸을 입력해 주세요.` };
+        }
       }
 
       // 행 순서대로 재정렬

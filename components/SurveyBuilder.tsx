@@ -669,16 +669,26 @@ function QuestionEditor({
         )}
 
         {question.type === "ranking" && (
-          <label>
-            순위 개수 (예: 3 → 1·2·3순위)
-            <input
-              type="number"
-              min={1}
-              max={10}
-              value={question.rankCount ?? 3}
-              onChange={(event) => onChange({ rankCount: Math.max(1, Number(event.target.value)) })}
-            />
-          </label>
+          <>
+            <label>
+              순위 개수 (예: 3 → 1·2·3순위)
+              <input
+                type="number"
+                min={1}
+                max={10}
+                value={question.rankCount ?? 3}
+                onChange={(event) => onChange({ rankCount: Math.max(1, Number(event.target.value)) })}
+              />
+            </label>
+            <label className="builder-check builder-col-span">
+              <input
+                type="checkbox"
+                checked={Boolean(question.requireAllRanks)}
+                onChange={(event) => onChange({ requireAllRanks: event.target.checked })}
+              />
+              모든 순위 입력 필수 (필수 문항일 때 모든 순위를 채워야 통과)
+            </label>
+          </>
         )}
 
         {question.type === "matrix" && (
@@ -734,6 +744,14 @@ function QuestionEditor({
                 onChange={(cols) => onChange({ gridColumns: cols })}
               />
             </div>
+            <label className="builder-check builder-col-span">
+              <input
+                type="checkbox"
+                checked={Boolean(question.requireAllCells)}
+                onChange={(event) => onChange({ requireAllCells: event.target.checked })}
+              />
+              모든 칸 입력 필수 (필수 문항일 때 모든 행의 모든 칸을 채워야 통과)
+            </label>
           </>
         )}
 
@@ -862,6 +880,8 @@ function normalizeQuestion(question: DraftQuestion): DraftQuestion {
     matrixMultiple: undefined,
     allowRowSkip: undefined,
     gridColumns: undefined,
+    requireAllRanks: undefined,
+    requireAllCells: undefined,
     namePart: question.namePart,
     accept: undefined,
     maxSizeMB: undefined,
@@ -889,7 +909,8 @@ function normalizeQuestion(question: DraftQuestion): DraftQuestion {
     return {
       ...base,
       options: question.options && question.options.length > 0 ? question.options : ["선택지 1", "선택지 2", "선택지 3"],
-      rankCount: question.rankCount ?? 3
+      rankCount: question.rankCount ?? 3,
+      requireAllRanks: question.requireAllRanks
     };
   }
 
@@ -913,7 +934,8 @@ function normalizeQuestion(question: DraftQuestion): DraftQuestion {
           : [
               { id: makeColId(), label: "연도", type: "text" as const },
               { id: makeColId(), label: "금액", type: "text" as const }
-            ]
+            ],
+      requireAllCells: question.requireAllCells
     };
   }
 

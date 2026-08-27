@@ -49,6 +49,8 @@ export type SurveyQuestion = {
   minSelections?: number;
   /** ranking 전용: 순위 개수(1순위~N순위). 기본 3. 선택지는 options 사용 */
   rankCount?: number;
+  /** ranking 전용: 필수일 때 모든 순위를 채워야 통과(선택지 수가 적으면 그만큼). 기본 false(최소 1순위) */
+  requireAllRanks?: boolean;
   /** matrix 전용: 행(평가 항목) 목록. 각 행마다 열 중 하나를 선택 */
   rows?: string[];
   /** matrix 전용: 열(선택지) 목록 */
@@ -59,6 +61,8 @@ export type SurveyQuestion = {
   allowRowSkip?: boolean;
   /** grid(입력형 표) 전용: 열(입력 필드) 정의. 행은 rows 사용 */
   gridColumns?: GridColumn[];
+  /** grid 전용: 필수일 때 모든 행의 모든 칸을 채워야 통과. 기본 false(최소 1칸) */
+  requireAllCells?: boolean;
   /** file 전용: 허용 확장자 목록. 예: [".pdf", ".xlsx"] */
   accept?: string[];
   /** file 전용: 파일 1개당 최대 용량(MB). 기본 20 */

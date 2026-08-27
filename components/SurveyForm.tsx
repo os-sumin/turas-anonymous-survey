@@ -846,17 +846,33 @@ function checkQuestion(question: SurveyQuestion, value: AnswerValue | undefined)
 
   if (question.type === "ranking") {
     const picked = isMapValue(value) ? value : {};
-    if (question.required && Object.keys(picked).length === 0) return `"${question.title}" 문항에 최소 1순위를 선택해 주세요.`;
+    const filledRanks = Object.keys(picked).length;
+    if (question.required) {
+      if (question.requireAllRanks) {
+        const need = Math.min(question.rankCount ?? 3, (question.options ?? []).length || (question.rankCount ?? 3));
+        if (filledRanks < need) return `"${question.title}" 문항의 모든 순위를 선택해 주세요.`;
+      } else if (filledRanks === 0) {
+        return `"${question.title}" 문항에 최소 1순위를 선택해 주세요.`;
+      }
+    }
     return null;
   }
 
   if (question.type === "grid") {
     const picked = isGridValue(value) ? value : {};
-    const filledCells = Object.values(picked).reduce(
-      (sum, rowObj) => sum + Object.values(rowObj || {}).filter((v) => String(v).trim() !== "").length,
-      0
-    );
-    if (question.required && filledCells === 0) return `"${question.title}" 문항을 입력해 주세요.`;
+    const rows = question.rows ?? [];
+    const cols = question.gridColumns ?? [];
+    const filledInRow = (row: string) =>
+      cols.filter((c) => String(picked[row]?.[c.label] ?? "").trim() !== "").length;
+    const totalFilled = rows.reduce((sum, row) => sum + filledInRow(row), 0);
+    if (question.required) {
+      if (question.requireAllCells) {
+        const incomplete = rows.some((row) => filledInRow(row) < cols.length);
+        if (incomplete) return `"${question.title}" 문항의 모든 칸을 입력해 주세요.`;
+      } else if (totalFilled === 0) {
+        return `"${question.title}" 문항을 입력해 주세요.`;
+      }
+    }
     return null;
   }
 
