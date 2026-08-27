@@ -69,6 +69,7 @@ export default function SurveyBuilder() {
   const [saving, setSaving] = useState(false);
   const [surveyList, setSurveyList] = useState<SurveyListItem[]>([]);
   const [showList, setShowList] = useState(false);
+  const [openGroups, setOpenGroups] = useState({ active: true, pending: false, archived: false });
   const [origin, setOrigin] = useState("");
   const [confirmState, setConfirmState] = useState<{
     title: string;
@@ -486,37 +487,59 @@ export default function SurveyBuilder() {
           <a className="builder-btn secondary" href={`/survey/${survey.id}`} target="_blank">
             응답화면 열기
           </a>
-          <button className="builder-btn primary" onClick={saveSurvey} disabled={saving}>
-            {saving ? "보관 중..." : "보관하기"}
+          <button className="builder-btn primary builder-save" onClick={saveSurvey} disabled={saving}>
+            {saving ? "저장 중..." : "💾 저장하기"}
           </button>
         </div>
       </header>
 
       {toast && <div className="builder-toast">{toast}</div>}
 
-      {showList && (
-        <div className="survey-list-panel">
-          <div className="survey-list-head">
-            <strong>📁 보관함</strong>
-            <button className="text-muted" onClick={() => setShowList(false)}>닫기</button>
+      {showList && (() => {
+        const active = surveyList.filter((s) => !s.archived && s.responseCount > 0);
+        const pending = surveyList.filter((s) => !s.archived && s.responseCount === 0);
+        const archived = surveyList.filter((s) => s.archived);
+        const toggleGroup = (key: "active" | "pending" | "archived") =>
+          setOpenGroups((g) => ({ ...g, [key]: !g[key] }));
+
+        const renderGroup = (
+          key: "active" | "pending" | "archived",
+          label: string,
+          tone: string,
+          items: SurveyListItem[]
+        ) => (
+          <div className="survey-group">
+            <button type="button" className="survey-group-toggle" onClick={() => toggleGroup(key)}>
+              <span className={`survey-group-name ${tone}`}>
+                {label} <em>({items.length})</em>
+              </span>
+              <span className="survey-group-caret">{openGroups[key] ? "▾" : "▸"}</span>
+            </button>
+            {openGroups[key] && (
+              <div className="survey-group-scroll">
+                {items.length === 0 ? (
+                  <div className="empty-box small">해당하는 설문이 없습니다.</div>
+                ) : (
+                  items.map((item) => renderSurveyRow(item))
+                )}
+              </div>
+            )}
           </div>
-          {surveyList.length === 0 && <div className="empty-box">저장된 설문이 없습니다.</div>}
+        );
 
-          {surveyList.filter((s) => !s.archived).length > 0 && (
-            <>
-              <div className="survey-group-label">🟢 진행 중 — 응답 받는 설문</div>
-              {surveyList.filter((s) => !s.archived).map((item) => renderSurveyRow(item))}
-            </>
-          )}
-
-          {surveyList.filter((s) => s.archived).length > 0 && (
-            <>
-              <div className="survey-group-label archived">📦 보관됨 — 응답 종료</div>
-              {surveyList.filter((s) => s.archived).map((item) => renderSurveyRow(item))}
-            </>
-          )}
-        </div>
-      )}
+        return (
+          <div className="survey-list-panel">
+            <div className="survey-list-head">
+              <strong>📁 보관함</strong>
+              <button className="text-muted" onClick={() => setShowList(false)}>닫기</button>
+            </div>
+            {surveyList.length === 0 && <div className="empty-box">저장된 설문이 없습니다.</div>}
+            {renderGroup("active", "🟢 진행 중 · 응답 받는 중", "", active)}
+            {renderGroup("pending", "🟡 답변 대기 · 아직 응답 없음", "pending", pending)}
+            {renderGroup("archived", "📦 보관됨 · 응답 종료", "archived", archived)}
+          </div>
+        );
+      })()}
 
       <div className="builder-layout">
         <aside className="builder-sidebar">

@@ -314,13 +314,15 @@ body {
 }
 
 .builder-topbar {
-  height: 72px;
-  padding: 0 28px;
+  min-height: 72px;
+  padding: 12px 28px;
   background: #0b1f3a;
   color: #fff;
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 
 .builder-logo {
@@ -337,7 +339,19 @@ body {
 .builder-actions {
   display: flex;
   gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
 }
+
+/* 저장 버튼 강조 — 다른 버튼과 확실히 구분 */
+.builder-topbar .builder-btn.builder-save {
+  background: #16a34a;
+  border-color: #16a34a;
+  color: #fff;
+  font-weight: 900;
+}
+.builder-topbar .builder-btn.builder-save:hover { background: #128a3f; }
+.builder-topbar .builder-btn.builder-save:disabled { background: #9ca3af; border-color: #9ca3af; }
 
 .builder-btn {
   border: 1px solid #cbd7e6;
@@ -863,9 +877,19 @@ body {
 .survey-list-tag.deployed { background: #e7f0ff; color: #2e119c; font-weight: 700; }
 .survey-list-tag.draft { background: #eef7ee; color: #2f7d32; }
 .survey-list-tag.archived-tag { background: #ececf0; color: #6b7280; font-weight: 700; }
-.survey-group-label { font-size: 12.5px; font-weight: 800; color: var(--muted); margin: 14px 4px 8px; }
-.survey-group-label.archived { color: #6b7280; }
-.survey-group-label:first-of-type { margin-top: 4px; }
+.survey-group { border-top: 1px solid var(--line); }
+.survey-group:first-of-type { border-top: 0; }
+.survey-group-toggle {
+  width: 100%; display: flex; align-items: center; justify-content: space-between;
+  background: none; border: 0; cursor: pointer; padding: 12px 4px; font: inherit;
+}
+.survey-group-name { font-size: 14px; font-weight: 800; color: #0b1f3a; }
+.survey-group-name em { font-style: normal; color: var(--muted); font-weight: 600; }
+.survey-group-name.pending { color: #2f7d32; }
+.survey-group-name.archived { color: #6b7280; }
+.survey-group-caret { color: var(--muted); font-size: 13px; }
+.survey-group-scroll { max-height: 320px; overflow-y: auto; padding-right: 2px; }
+.empty-box.small { padding: 12px; font-size: 13px; color: var(--muted); }
 
 /* 확인 모달 */
 .confirm-overlay {
