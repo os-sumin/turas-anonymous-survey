@@ -47,6 +47,8 @@ export type SurveyListItem = {
   /** 코드(survey.config.ts)에만 있는 설문은 삭제할 수 없음 */
   source: "firestore" | "code";
   responseCount: number;
+  /** true면 보관(종료) 상태 */
+  archived: boolean;
 };
 
 export async function listSurveyConfigs(): Promise<SurveyListItem[]> {
@@ -56,7 +58,8 @@ export async function listSurveyConfigs(): Promise<SurveyListItem[]> {
       title: c.title,
       agency: c.agency,
       source: "code" as const,
-      responseCount: 0
+      responseCount: 0,
+      archived: Boolean(c.archived)
     }));
   }
 
@@ -64,13 +67,14 @@ export async function listSurveyConfigs(): Promise<SurveyListItem[]> {
   const snap = await db.collection(CONFIG_COLLECTION).orderBy("updated_at", "desc").get();
 
   const fromDb = snap.docs.map((doc) => {
-    const data = doc.data() as { title?: string; agency?: string };
+    const data = doc.data() as { title?: string; agency?: string; archived?: boolean };
     return {
       id: doc.id,
       title: data.title || doc.id,
       agency: data.agency || "",
       source: "firestore" as const,
-      responseCount: 0
+      responseCount: 0,
+      archived: Boolean(data.archived)
     };
   });
 
@@ -82,7 +86,8 @@ export async function listSurveyConfigs(): Promise<SurveyListItem[]> {
       title: c.title,
       agency: c.agency,
       source: "code" as const,
-      responseCount: 0
+      responseCount: 0,
+      archived: Boolean(c.archived)
     }));
 
   const items = [...fromDb, ...fromCode];

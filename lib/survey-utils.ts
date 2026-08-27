@@ -9,6 +9,7 @@ export function getEffectiveEndAt(config: SurveyConfig): string | undefined {
 }
 
 export function isSurveyClosed(config: SurveyConfig): boolean {
+  if (config.archived) return true;
   const endAt = getEffectiveEndAt(config);
   if (!endAt) return false;
   const end = new Date(endAt);

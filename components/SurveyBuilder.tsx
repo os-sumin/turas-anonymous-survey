@@ -11,6 +11,7 @@ type SurveyListItem = {
   agency: string;
   source: "firestore" | "code";
   responseCount: number;
+  archived: boolean;
 };
 
 const PASSWORD_STORAGE_KEY = "turas_admin_password";
@@ -211,6 +212,50 @@ export default function SurveyBuilder() {
     }
   }
 
+  function toggleArchive(item: SurveyListItem) {
+    if (item.source === "code") {
+      showToast("코드에 정의된 설문은 보관 상태를 바꿀 수 없습니다.");
+      return;
+    }
+    const toArchive = !item.archived;
+    askConfirm({
+      title: toArchive ? "설문 보관(종료)" : "설문 다시 열기",
+      message: toArchive
+        ? `"${item.title}" 설문을 보관하면 응답 페이지가 닫혀 더 이상 응답을 받지 않습니다.\n` +
+          "이미 받은 응답은 그대로 보존됩니다. 보관할까요?"
+        : `"${item.title}" 설문을 다시 열면 응답 페이지가 열려 다시 응답을 받습니다. 진행할까요?`,
+      confirmLabel: toArchive ? "보관하기" : "다시 열기",
+      onConfirm: () => void applyArchive(item.id, toArchive)
+    });
+  }
+
+  async function applyArchive(surveyId: string, archived: boolean) {
+    try {
+      const res = await fetch(`/api/admin/surveys?id=${encodeURIComponent(surveyId)}`, {
+        headers: { "x-admin-password": password }
+      });
+      const loaded = (await res.json()) as { ok?: boolean; config?: SurveyConfig; message?: string };
+      if (!res.ok || !loaded.ok || !loaded.config) throw new Error(loaded.message || "설문을 불러오지 못했습니다.");
+
+      const next = { ...loaded.config, archived };
+      const saveRes = await fetch("/api/admin/surveys", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-admin-password": password },
+        body: JSON.stringify({ config: next })
+      });
+      const saved = (await saveRes.json()) as { ok?: boolean; message?: string };
+      if (!saveRes.ok || !saved.ok) throw new Error(saved.message || "상태 변경에 실패했습니다.");
+
+      // 지금 편집 중인 설문과 같으면 화면 상태도 맞춰줌
+      if (survey.id === surveyId) setSurvey((prev) => ({ ...prev, archived }));
+
+      showToast(archived ? "보관함으로 옮겼습니다 (응답 종료)." : "다시 열었습니다 (응답 재개).");
+      void refreshList(password);
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "상태 변경에 실패했습니다.");
+    }
+  }
+
   async function deleteSurvey(item: SurveyListItem) {
     if (item.source === "code") {
       showToast("코드에 정의된 설문은 여기서 삭제할 수 없습니다.");
@@ -378,6 +423,42 @@ export default function SurveyBuilder() {
     );
   }
 
+  function renderSurveyRow(item: SurveyListItem) {
+    return (
+      <div className="survey-list-row" key={item.id}>
+        <div className="survey-list-info">
+          <div className="survey-list-title">
+            {item.title}
+            {item.source === "code" && <span className="survey-list-tag">코드</span>}
+            {item.archived && <span className="survey-list-tag archived-tag">보관됨</span>}
+            {!item.archived && item.source === "firestore" && item.responseCount > 0 && (
+              <span className="survey-list-tag deployed">진행 중 · 응답 {item.responseCount}건</span>
+            )}
+            {!item.archived && item.source === "firestore" && item.responseCount === 0 && (
+              <span className="survey-list-tag draft">응답 대기</span>
+            )}
+          </div>
+          <div className="survey-list-meta">
+            {item.id} · 응답 {item.responseCount}건
+          </div>
+        </div>
+        <div className="survey-list-actions">
+          <button className="builder-btn secondary" onClick={() => loadSurvey(item)}>
+            {item.responseCount > 0 ? "불러와서 수정" : "불러오기"}
+          </button>
+          {item.source === "firestore" && (
+            <button className="builder-btn secondary" onClick={() => toggleArchive(item)}>
+              {item.archived ? "다시 열기" : "보관(종료)"}
+            </button>
+          )}
+          <button className="builder-btn danger" disabled={item.source === "code"} onClick={() => deleteSurvey(item)}>
+            삭제
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <main className="builder-shell">
       <header className="builder-topbar">
@@ -415,41 +496,24 @@ export default function SurveyBuilder() {
       {showList && (
         <div className="survey-list-panel">
           <div className="survey-list-head">
-            <strong>📁 보관함 — 저장된 설문</strong>
+            <strong>📁 보관함</strong>
             <button className="text-muted" onClick={() => setShowList(false)}>닫기</button>
           </div>
           {surveyList.length === 0 && <div className="empty-box">저장된 설문이 없습니다.</div>}
-          {surveyList.map((item) => (
-            <div className="survey-list-row" key={item.id}>
-              <div className="survey-list-info">
-                <div className="survey-list-title">
-                  {item.title}
-                  {item.source === "code" && <span className="survey-list-tag">코드</span>}
-                  {item.source === "firestore" && item.responseCount > 0 && (
-                    <span className="survey-list-tag deployed">배포됨 · 응답 {item.responseCount}건</span>
-                  )}
-                  {item.source === "firestore" && item.responseCount === 0 && (
-                    <span className="survey-list-tag draft">응답 대기</span>
-                  )}
-                </div>
-                <div className="survey-list-meta">
-                  {item.id} · 응답 {item.responseCount}건
-                </div>
-              </div>
-              <div className="survey-list-actions">
-                <button className="builder-btn secondary" onClick={() => loadSurvey(item)}>
-                  {item.responseCount > 0 ? "불러와서 수정" : "불러오기"}
-                </button>
-                <button
-                  className="builder-btn danger"
-                  disabled={item.source === "code"}
-                  onClick={() => deleteSurvey(item)}
-                >
-                  삭제
-                </button>
-              </div>
-            </div>
-          ))}
+
+          {surveyList.filter((s) => !s.archived).length > 0 && (
+            <>
+              <div className="survey-group-label">🟢 진행 중 — 응답 받는 설문</div>
+              {surveyList.filter((s) => !s.archived).map((item) => renderSurveyRow(item))}
+            </>
+          )}
+
+          {surveyList.filter((s) => s.archived).length > 0 && (
+            <>
+              <div className="survey-group-label archived">📦 보관됨 — 응답 종료</div>
+              {surveyList.filter((s) => s.archived).map((item) => renderSurveyRow(item))}
+            </>
+          )}
         </div>
       )}
 
@@ -546,6 +610,14 @@ export default function SurveyBuilder() {
                   onChange={(event) => updateSurvey("allowEdit", event.target.checked)}
                 />
                 응답 수정 허용 (제출 후 수정 코드 발급)
+              </label>
+              <label className="builder-check">
+                <input
+                  type="checkbox"
+                  checked={Boolean(survey.archived)}
+                  onChange={(event) => updateSurvey("archived", event.target.checked)}
+                />
+                보관(종료) — 체크하면 저장 시 응답을 더 이상 받지 않음
               </label>
             </div>
           </div>

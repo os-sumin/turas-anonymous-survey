@@ -839,6 +839,10 @@ body {
 }
 .survey-list-tag.deployed { background: #e7f0ff; color: #2e119c; font-weight: 700; }
 .survey-list-tag.draft { background: #eef7ee; color: #2f7d32; }
+.survey-list-tag.archived-tag { background: #ececf0; color: #6b7280; font-weight: 700; }
+.survey-group-label { font-size: 12.5px; font-weight: 800; color: var(--muted); margin: 14px 4px 8px; }
+.survey-group-label.archived { color: #6b7280; }
+.survey-group-label:first-of-type { margin-top: 4px; }
 
 /* 확인 모달 */
 .confirm-overlay {

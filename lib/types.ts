@@ -101,6 +101,8 @@ export type SurveyConfig = {
   anonymous?: boolean;
   /** true면 제출 후 '수정 코드'를 발급해, 응답자가 코드로 자기 응답을 다시 수정할 수 있게 함 */
   allowEdit?: boolean;
+  /** true면 보관(종료) 상태 — 더 이상 응답을 받지 않음. 보관함의 '보관됨'으로 분류 */
+  archived?: boolean;
   sections: SurveySection[];
 };
 
