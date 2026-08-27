@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { GridColumn, QuestionType, SurveyConfig, SurveyImage, SurveyQuestion, SurveySection } from "@/lib/types";
+import { otherLabelOf } from "@/lib/survey-utils";
 
 type DraftQuestion = SurveyQuestion;
 type DraftSection = SurveySection;
@@ -665,6 +666,7 @@ export default function SurveyBuilder() {
                   key={question.id}
                   index={index}
                   question={question}
+                  priorChoiceQuestions={priorChoiceQuestions(survey, question.id)}
                   onChange={(patch) => updateQuestion(selectedSection.id, question.id, patch)}
                   onRemove={() => removeQuestion(selectedSection.id, question.id)}
                 />
@@ -736,14 +738,17 @@ export default function SurveyBuilder() {
 function QuestionEditor({
   index,
   question,
+  priorChoiceQuestions,
   onChange,
   onRemove
 }: {
   index: number;
   question: DraftQuestion;
+  priorChoiceQuestions: SurveyQuestion[];
   onChange: (patch: Partial<DraftQuestion>) => void;
   onRemove: () => void;
 }) {
+  const condBase = priorChoiceQuestions.find((q) => q.id === question.showIf?.questionId);
   return (
     <div className="question-editor">
       <div className="question-editor-head">
@@ -795,6 +800,79 @@ function QuestionEditor({
           필수 문항
         </label>
 
+        <div className="builder-col-span cond-editor">
+          <label className="builder-check">
+            <input
+              type="checkbox"
+              checked={Boolean(question.showIf)}
+              disabled={priorChoiceQuestions.length === 0}
+              onChange={(event) =>
+                onChange({
+                  showIf: event.target.checked
+                    ? { questionId: priorChoiceQuestions[0]?.id || "", values: [] }
+                    : undefined
+                })
+              }
+            />
+            조건부 표시 — 앞 문항의 특정 답일 때만 이 문항을 보여주기 (분기)
+          </label>
+          {priorChoiceQuestions.length === 0 && (
+            <p className="question-desc">앞에 객관식(단일·복수선택) 문항이 있어야 조건을 걸 수 있어요.</p>
+          )}
+          {question.showIf && (
+            <div className="cond-body">
+              <label className="cond-field">
+                기준 문항
+                <select
+                  value={question.showIf.questionId}
+                  onChange={(e) => onChange({ showIf: { questionId: e.target.value, values: [] } })}
+                >
+                  {priorChoiceQuestions.map((q) => (
+                    <option key={q.id} value={q.id}>
+                      {q.id} — {q.title.slice(0, 20)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="cond-values">
+                <span className="cond-values-label">이 답일 때 표시:</span>
+                {(condBase?.options || []).map((opt) => {
+                  const checked = question.showIf?.values.includes(opt) || false;
+                  return (
+                    <label className="cond-value" key={opt}>
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(e) => {
+                          const cur = question.showIf?.values || [];
+                          const next = e.target.checked ? [...cur, opt] : cur.filter((v) => v !== opt);
+                          onChange({ showIf: { questionId: question.showIf!.questionId, values: next } });
+                        }}
+                      />
+                      {opt}
+                    </label>
+                  );
+                })}
+                {condBase?.allowOther && (
+                  <label className="cond-value">
+                    <input
+                      type="checkbox"
+                      checked={question.showIf?.values.includes(otherLabelOf(condBase)) || false}
+                      onChange={(e) => {
+                        const label = otherLabelOf(condBase);
+                        const cur = question.showIf?.values || [];
+                        const next = e.target.checked ? [...cur, label] : cur.filter((v) => v !== label);
+                        onChange({ showIf: { questionId: question.showIf!.questionId, values: next } });
+                      }}
+                    />
+                    {otherLabelOf(condBase)}
+                  </label>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+
         {(question.type === "single" || question.type === "multiple" || question.type === "ranking") && (
           <label className="builder-col-span">
             선택지, 줄바꿈 기준
@@ -802,6 +880,17 @@ function QuestionEditor({
               value={question.options || []}
               onChange={(lines) => onChange({ options: lines })}
             />
+          </label>
+        )}
+
+        {(question.type === "single" || question.type === "multiple") && (
+          <label className="builder-check builder-col-span">
+            <input
+              type="checkbox"
+              checked={Boolean(question.allowOther)}
+              onChange={(event) => onChange({ allowOther: event.target.checked })}
+            />
+            &ldquo;기타(직접 입력)&rdquo; 항목 추가 — 선택하면 아래에 입력칸이 나타남
           </label>
         )}
 
@@ -1172,6 +1261,14 @@ function toSlug(value: string) {
     .replace(/[^a-z0-9가-힣_-]+/gi, "_")
     .replace(/_+/g, "_")
     .replace(/^_+|_+$/g, "");
+}
+
+/** 조건부 표시의 기준이 될 수 있는 문항: 대상 문항보다 앞에 있는 단일·복수 선택 문항 */
+function priorChoiceQuestions(survey: SurveyConfig, targetId: string): SurveyQuestion[] {
+  const flat = survey.sections.flatMap((s) => s.questions);
+  const idx = flat.findIndex((q) => q.id === targetId);
+  const scope = idx < 0 ? flat : flat.slice(0, idx);
+  return scope.filter((q) => (q.type === "single" || q.type === "multiple") && (q.options?.length || 0) > 0);
 }
 
 /** 새 열에 부여할 고정 id 생성 */

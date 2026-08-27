@@ -21,6 +21,33 @@ export function flattenQuestions(config: SurveyConfig): SurveyQuestion[] {
   return config.sections.flatMap((section) => section.questions);
 }
 
+/** 기타 항목 라벨 (기본 "기타") */
+export function otherLabelOf(question: SurveyQuestion): string {
+  return question.otherLabel?.trim() || "기타";
+}
+
+/** 값이 "기타" 또는 "기타: 내용" 형태인지 */
+export function isOtherValue(value: string, label: string): boolean {
+  return value === label || value.startsWith(`${label}: `);
+}
+
+/**
+ * 조건부 표시 평가: showIf가 없으면 항상 표시.
+ * 기준 문항 답이 지정 값 중 하나면 표시(복수선택은 하나라도 포함).
+ * "기타: 내용" 형태도 기타 값과 매칭.
+ */
+export function isQuestionVisible(question: SurveyQuestion, answers: Record<string, unknown>): boolean {
+  const cond = question.showIf;
+  if (!cond || !cond.questionId || !cond.values || cond.values.length === 0) return true;
+  const raw = answers[cond.questionId];
+  const matches = (v: unknown) => {
+    const s = String(v ?? "");
+    return cond.values.some((target) => s === target || s.startsWith(`${target}: `));
+  };
+  if (Array.isArray(raw)) return raw.some(matches);
+  return matches(raw);
+}
+
 export function findQuestion(config: SurveyConfig, questionId: string): SurveyQuestion | null {
   return flattenQuestions(config).find((q) => q.id === questionId) ?? null;
 }
@@ -33,6 +60,14 @@ export function validateAnswers(
 
   for (const question of flattenQuestions(config)) {
     const value = rawAnswers[question.id];
+
+    // 조건부 표시(showIf)로 숨겨진 문항은 필수 검사·수집에서 제외
+    if (!isQuestionVisible(question, rawAnswers)) {
+      if (question.type === "multiple" || question.type === "file") clean[question.id] = [];
+      else if (question.type === "ranking" || question.type === "matrix" || question.type === "grid") clean[question.id] = {};
+      else clean[question.id] = "";
+      continue;
+    }
 
     if (question.required && isEmptyAnswer(value)) {
       return { ok: false, message: `"${question.title}" 문항은 필수입니다.` };
@@ -47,13 +82,20 @@ export function validateAnswers(
 
     if (question.type === "single") {
       if (typeof value !== "string") return { ok: false, message: `"${question.title}" 응답 형식이 올바르지 않습니다.` };
-      if (question.options && !question.options.includes(value)) return { ok: false, message: `"${question.title}" 선택지가 올바르지 않습니다.` };
+      const label = otherLabelOf(question);
+      const okOther = question.allowOther && isOtherValue(value, label);
+      if (question.options && !question.options.includes(value) && !okOther) {
+        return { ok: false, message: `"${question.title}" 선택지가 올바르지 않습니다.` };
+      }
       clean[question.id] = value;
     }
 
     if (question.type === "multiple") {
       if (!Array.isArray(value) || !value.every((v) => typeof v === "string")) return { ok: false, message: `"${question.title}" 응답 형식이 올바르지 않습니다.` };
-      const invalid = value.find((v) => question.options && !question.options.includes(v));
+      const label = otherLabelOf(question);
+      const invalid = value.find(
+        (v) => question.options && !question.options.includes(v) && !(question.allowOther && isOtherValue(v, label))
+      );
       if (invalid) return { ok: false, message: `"${question.title}" 선택지가 올바르지 않습니다.` };
       const unique = Array.from(new Set(value));
       if (question.maxSelections && unique.length > question.maxSelections) {

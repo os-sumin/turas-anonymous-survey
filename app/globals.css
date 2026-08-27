@@ -98,6 +98,22 @@ body {
 .option.is-disabled { opacity: .45; cursor: not-allowed; }
 .option.is-disabled:hover { border-color: var(--line); background: #fff; }
 
+/* 기타(직접 입력) 칸 */
+.other-input {
+  width: 100%; box-sizing: border-box; margin-top: 4px;
+  border: 1px solid var(--line); border-radius: 12px; padding: 11px 13px; font: inherit; background: #fff; outline: none;
+}
+.other-input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(63,27,199,.08); }
+
+/* 조건부 표시(분기) 편집기 */
+.cond-editor { border: 1px dashed var(--line); border-radius: 12px; padding: 12px; background: #fbfdff; }
+.cond-body { margin-top: 8px; padding-left: 4px; }
+.cond-field { display: block; font-size: 13px; color: var(--muted); margin-bottom: 10px; }
+.cond-field select { display: block; width: 100%; margin-top: 5px; border: 1px solid var(--line); border-radius: 10px; padding: 9px 11px; font: inherit; background: #fff; }
+.cond-values { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.cond-values-label { font-size: 13px; color: var(--muted); font-weight: 700; }
+.cond-value { display: inline-flex; align-items: center; gap: 5px; font-size: 14px; background: #fff; border: 1px solid var(--line); border-radius: 999px; padding: 5px 11px; cursor: pointer; }
+
 /* 순위 선택 */
 .rank-list { display: grid; gap: 12px; }
 .rank-hint { color: var(--muted); font-size: 13px; margin: -2px 0 6px; line-height: 1.5; }
@@ -344,6 +360,13 @@ body {
 }
 
 .builder-btn.secondary {
+  background: #fff;
+  color: #1357d8;
+  border-color: #cbd7e6;
+}
+
+/* 어두운 상단 헤더 안에서는 흰 글자로 */
+.builder-topbar .builder-btn.secondary {
   background: transparent;
   color: #fff;
   border-color: #3e587d;

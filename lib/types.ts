@@ -38,6 +38,12 @@ export type SurveyQuestion = {
   images?: SurveyImage[];
   required?: boolean;
   options?: string[];
+  /** 객관식(단일·복수) 전용: "기타(직접 입력)" 항목을 추가 */
+  allowOther?: boolean;
+  /** 기타 항목 라벨 (기본 "기타") */
+  otherLabel?: string;
+  /** 조건부 표시: 기준 문항이 특정 값일 때만 이 문항을 보여줌(분기). 아니면 숨김+미수집 */
+  showIf?: { questionId: string; values: string[] };
   placeholder?: string;
   min?: number;
   max?: number;

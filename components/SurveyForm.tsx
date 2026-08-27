@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { SurveyConfig, SurveyQuestion, UploadedFile } from "@/lib/types";
+import { isOtherValue, isQuestionVisible, otherLabelOf } from "@/lib/survey-utils";
 
 type Props = { config: SurveyConfig; token?: string; editCode?: string };
 type MapValue = Record<string, string | string[]>;
@@ -329,7 +330,7 @@ export default function SurveyForm({ config, token, editCode }: Props) {
       <section className="section" key={currentSection.id}>
         <h2 className="section-title">{currentSection.title}</h2>
         {currentSection.description && <p className="section-description">{currentSection.description}</p>}
-        {currentSection.questions.map((question) => (
+        {currentSection.questions.filter((question) => isQuestionVisible(question, answers)).map((question) => (
           <QuestionField
             key={question.id}
             surveyId={config.id}
@@ -445,16 +446,57 @@ function QuestionField({
         </div>
       )}
 
-      {question.type === "single" && (
-        <div className="option-list">
-          {question.options?.map((option) => (
-            <label className="option" key={option}>
-              <input type="radio" name={question.id} value={option} checked={value === option} required={question.required} onChange={() => setAnswer(question.id, option)} />
-              <span>{option}</span>
-            </label>
-          ))}
-        </div>
-      )}
+      {question.type === "single" && (() => {
+        const label = otherLabelOf(question);
+        const strVal = typeof value === "string" ? value : "";
+        const otherSelected = Boolean(question.allowOther) && isOtherValue(strVal, label);
+        const otherText = strVal.startsWith(`${label}: `) ? strVal.slice(label.length + 2) : "";
+        return (
+          <div className="option-list">
+            {question.options?.map((option) => (
+              <label className="option" key={option}>
+                <input
+                  type="radio"
+                  name={question.id}
+                  value={option}
+                  checked={strVal === option}
+                  onClick={() => {
+                    if (strVal === option) setAnswer(question.id, ""); // 같은 항목 다시 누르면 선택 해제
+                  }}
+                  onChange={() => setAnswer(question.id, option)}
+                />
+                <span>{option}</span>
+              </label>
+            ))}
+            {question.allowOther && (
+              <>
+                <label className="option">
+                  <input
+                    type="radio"
+                    name={question.id}
+                    checked={otherSelected}
+                    onClick={() => {
+                      if (otherSelected) setAnswer(question.id, "");
+                    }}
+                    onChange={() => setAnswer(question.id, label)}
+                  />
+                  <span>{label} (직접 입력)</span>
+                </label>
+                {otherSelected && (
+                  <input
+                    className="other-input"
+                    placeholder="내용을 입력해 주세요"
+                    value={otherText}
+                    onChange={(e) =>
+                      setAnswer(question.id, e.target.value.trim() ? `${label}: ${e.target.value}` : label)
+                    }
+                  />
+                )}
+              </>
+            )}
+          </div>
+        );
+      })()}
 
       {question.type === "multiple" && (
         <>
@@ -489,6 +531,42 @@ function QuestionField({
                 </label>
               );
             })}
+            {question.allowOther && (() => {
+              const label = otherLabelOf(question);
+              const picked = Array.isArray(value) ? (value as string[]) : [];
+              const otherItem = picked.find((p) => isOtherValue(p, label));
+              const otherChecked = Boolean(otherItem);
+              const otherText = otherItem && otherItem.startsWith(`${label}: `) ? otherItem.slice(label.length + 2) : "";
+              const isFull = Boolean(question.maxSelections) && picked.length >= (question.maxSelections as number);
+              return (
+                <>
+                  <label className={`option ${!otherChecked && isFull ? "is-disabled" : ""}`}>
+                    <input
+                      type="checkbox"
+                      checked={otherChecked}
+                      disabled={!otherChecked && isFull}
+                      onChange={() => {
+                        const base = picked.filter((p) => !isOtherValue(p, label));
+                        setAnswer(question.id, otherChecked ? base : [...base, label]);
+                      }}
+                    />
+                    <span>{label} (직접 입력)</span>
+                  </label>
+                  {otherChecked && (
+                    <input
+                      className="other-input"
+                      placeholder="내용을 입력해 주세요"
+                      value={otherText}
+                      onChange={(e) => {
+                        const base = picked.filter((p) => !isOtherValue(p, label));
+                        const next = e.target.value.trim() ? `${label}: ${e.target.value}` : label;
+                        setAnswer(question.id, [...base, next]);
+                      }}
+                    />
+                  )}
+                </>
+              );
+            })()}
           </div>
         </>
       )}
@@ -841,6 +919,10 @@ function checkQuestion(question: SurveyQuestion, value: AnswerValue | undefined)
     if (question.maxSelections && picked.length > question.maxSelections) {
       return `"${question.title}" 문항은 최대 ${question.maxSelections}개까지 선택할 수 있습니다.`;
     }
+    if (question.allowOther) {
+      const label = otherLabelOf(question);
+      if (picked.includes(label)) return `"${question.title}" 문항의 기타 내용을 입력해 주세요.`;
+    }
     return null;
   }
 
@@ -894,6 +976,10 @@ function checkQuestion(question: SurveyQuestion, value: AnswerValue | undefined)
   }
 
   // single / text / textarea / number / scale — 필수 여부만 확인(형식은 서버가 재검증)
+  if (question.type === "single" && question.allowOther) {
+    const label = otherLabelOf(question);
+    if (typeof value === "string" && value === label) return `"${question.title}" 문항의 기타 내용을 입력해 주세요.`;
+  }
   if (question.required) {
     const isEmpty =
       value === undefined ||
@@ -908,9 +994,10 @@ function checkQuestion(question: SurveyQuestion, value: AnswerValue | undefined)
   return null;
 }
 
-/** 한 섹션 안에서 첫 번째 문제를 찾음 */
+/** 한 섹션 안에서 첫 번째 문제를 찾음 (숨겨진 문항은 건너뜀) */
 function findSectionProblem(section: SurveyConfig["sections"][number], answers: Answers): { questionId: string; message: string } | null {
   for (const question of section.questions) {
+    if (!isQuestionVisible(question, answers)) continue;
     const message = checkQuestion(question, answers[question.id]);
     if (message) return { questionId: question.id, message };
   }
