@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import type { GridColumn, QuestionType, SurveyConfig, SurveyImage, SurveyQuestion, SurveySection } from "@/lib/types";
 
 type DraftQuestion = SurveyQuestion;
@@ -28,31 +28,35 @@ const questionTypes: { value: QuestionType; label: string }[] = [
   { value: "file", label: "파일첨부" }
 ];
 
-const initialSurvey: SurveyConfig = {
-  id: "new_survey_2027",
-  agency: "한국산업기술진흥원 (KIAT)",
-  title: "새 설문 제목을 입력해 주세요.",
-  subtitle: "",
-  description: "설문 목적을 입력해 주세요.",
-  notice: ["제출해 주신 자료는 조사 목적 외에는 사용되지 않습니다."],
-  endAt: "",
-  anonymous: false,
-  sections: [
-    {
-      id: "section_1",
-      title: "1. 기본 문항",
-      description: "설문 목적에 맞게 문항을 수정해 주세요.",
-      questions: [
-        {
-          id: "q1",
-          type: "text",
-          title: "귀사의 기업명을 입력해 주세요.",
-          required: true
-        }
-      ]
-    }
-  ]
-};
+function makeInitialSurvey(): SurveyConfig {
+  return {
+    id: "new_survey_2027",
+    agency: "한국산업기술진흥원 (KIAT)",
+    title: "새 설문 제목을 입력해 주세요.",
+    subtitle: "",
+    description: "설문 목적을 입력해 주세요.",
+    notice: ["제출해 주신 자료는 조사 목적 외에는 사용되지 않습니다."],
+    endAt: "",
+    anonymous: false,
+    sections: [
+      {
+        id: "section_1",
+        title: "1. 기본 문항",
+        description: "설문 목적에 맞게 문항을 수정해 주세요.",
+        questions: [
+          {
+            id: "q1",
+            type: "text",
+            title: "귀사의 기업명을 입력해 주세요.",
+            required: true
+          }
+        ]
+      }
+    ]
+  };
+}
+
+const initialSurvey: SurveyConfig = makeInitialSurvey();
 
 export default function SurveyBuilder() {
   const [password, setPassword] = useState("");
@@ -75,12 +79,10 @@ export default function SurveyBuilder() {
     setConfirmState(opts);
   }
 
-  const shareUrl = origin ? `${origin}/survey/${survey.id}` : `/survey/${survey.id}`;
-
   const selectedSection =
     survey.sections.find((section) => section.id === selectedSectionId) || survey.sections[0];
 
-  const configText = useMemo(() => JSON.stringify(survey, null, 2), [survey]);
+  const shareUrl = origin ? `${origin}/survey/${survey.id}` : `/survey/${survey.id}`;
 
   useEffect(() => {
     const stored = sessionStorage.getItem(PASSWORD_STORAGE_KEY);
@@ -321,24 +323,35 @@ export default function SurveyBuilder() {
     }));
   }
 
-  async function copyConfig() {
-    await navigator.clipboard.writeText(configText);
-    showToast("JSON이 복사되었습니다.");
-  }
-
   async function copyShareUrl() {
     await navigator.clipboard.writeText(shareUrl);
     showToast("응답 링크가 복사되었습니다.");
   }
 
-  function downloadConfig() {
-    const blob = new Blob([configText], { type: "application/json;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const element = document.createElement("a");
-    element.href = url;
-    element.download = `${survey.id || "survey"}.json`;
-    element.click();
-    URL.revokeObjectURL(url);
+  function startNewSurvey() {
+    const fresh = makeInitialSurvey();
+    setSurvey(fresh);
+    setSelectedSectionId(fresh.sections[0].id);
+    setShowList(false);
+    showToast("새 설문을 시작했습니다. 저장하면 보관함에 담깁니다.");
+  }
+
+  function createNewSurvey() {
+    // 편집 중인 내용이 있으면(빈 초기 설문이 아니면) 확인 단계를 둔다
+    const isPristine = JSON.stringify(survey) === JSON.stringify(makeInitialSurvey());
+    if (isPristine) {
+      startNewSurvey();
+      return;
+    }
+    askConfirm({
+      title: "설문 새로 만들기",
+      message:
+        "지금 편집 중인 내용이 화면에서 사라집니다.\n" +
+        "보관함에 저장하지 않은 변경사항은 복구할 수 없어요. 새 설문을 시작할까요?\n\n" +
+        "(이미 보관함에 저장된 설문은 그대로 남아 있습니다.)",
+      confirmLabel: "새로 시작",
+      onConfirm: startNewSurvey
+    });
   }
 
   if (!password) {
@@ -373,6 +386,9 @@ export default function SurveyBuilder() {
           <div className="builder-sub">설문 문항 생성 및 저장</div>
         </div>
         <div className="builder-actions">
+          <button className="builder-btn secondary" onClick={createNewSurvey}>
+            + 설문 새로 만들기
+          </button>
           <button
             className="builder-btn secondary"
             onClick={() => {
@@ -388,10 +404,8 @@ export default function SurveyBuilder() {
           <a className="builder-btn secondary" href={`/survey/${survey.id}`} target="_blank">
             응답화면 열기
           </a>
-          <button className="builder-btn secondary" onClick={downloadConfig}>JSON 다운로드</button>
-          <button className="builder-btn secondary" onClick={copyConfig}>JSON 복사</button>
           <button className="builder-btn primary" onClick={saveSurvey} disabled={saving}>
-            {saving ? "저장 중..." : "저장하기"}
+            {saving ? "보관 중..." : "보관하기"}
           </button>
         </div>
       </header>
@@ -617,9 +631,6 @@ export default function SurveyBuilder() {
               </div>
             ))}
           </div>
-
-          <h2>JSON</h2>
-          <pre className="json-box">{configText}</pre>
         </aside>
       </div>
 
