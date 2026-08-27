@@ -64,6 +64,16 @@ export default function SurveyBuilder() {
   const [surveyList, setSurveyList] = useState<SurveyListItem[]>([]);
   const [showList, setShowList] = useState(false);
   const [origin, setOrigin] = useState("");
+  const [confirmState, setConfirmState] = useState<{
+    title: string;
+    message: string;
+    confirmLabel: string;
+    onConfirm: () => void;
+  } | null>(null);
+
+  function askConfirm(opts: { title: string; message: string; confirmLabel: string; onConfirm: () => void }) {
+    setConfirmState(opts);
+  }
 
   const shareUrl = origin ? `${origin}/survey/${survey.id}` : `/survey/${survey.id}`;
 
@@ -111,7 +121,25 @@ export default function SurveyBuilder() {
     setPasswordInput("");
   }
 
-  async function saveSurvey() {
+  function saveSurvey() {
+    // 이미 배포되어 응답을 받고 있는 설문을 덮어쓰는 경우 확인 단계를 둔다
+    const existing = surveyList.find((s) => s.id === survey.id && s.source === "firestore");
+    if (existing && existing.responseCount > 0) {
+      askConfirm({
+        title: "배포된 설문 덮어쓰기",
+        message:
+          `"${survey.title}" 설문은 이미 배포되어 ${existing.responseCount}건의 응답을 받았습니다.\n\n` +
+          "문항을 바꾸면 이미 받은 응답과 구조가 어긋날 수 있습니다(기존 응답은 그대로 보존됩니다). " +
+          "그래도 저장하시겠습니까?",
+        confirmLabel: "저장하기",
+        onConfirm: () => void doSave()
+      });
+      return;
+    }
+    void doSave();
+  }
+
+  async function doSave() {
     setSaving(true);
     try {
       const serialized = JSON.stringify({ config: survey });
@@ -142,7 +170,25 @@ export default function SurveyBuilder() {
     }
   }
 
-  async function loadSurvey(surveyId: string) {
+  function loadSurvey(item: SurveyListItem) {
+    if (!item?.id) return;
+    // 이미 배포되어 응답을 받은 설문을 수정하려는 경우 확인 단계를 둔다
+    if (item.responseCount > 0) {
+      askConfirm({
+        title: "배포된 설문 수정",
+        message:
+          `"${item.title}" 설문은 이미 배포되어 ${item.responseCount}건의 응답을 받고 있습니다.\n\n` +
+          "불러와서 수정한 뒤 저장하면 응답자에게 보이는 설문이 바뀝니다. " +
+          "이미 받은 응답과 문항 구조가 어긋날 수 있으니 주의하세요. 불러와서 수정하시겠습니까?",
+        confirmLabel: "불러와서 수정",
+        onConfirm: () => void doLoad(item.id)
+      });
+      return;
+    }
+    void doLoad(item.id);
+  }
+
+  async function doLoad(surveyId: string) {
     if (!surveyId) return;
     try {
       const response = await fetch(`/api/admin/surveys?id=${encodeURIComponent(surveyId)}`, {
@@ -156,6 +202,7 @@ export default function SurveyBuilder() {
 
       setSurvey(result.config);
       setSelectedSectionId(result.config.sections[0]?.id || "");
+      setShowList(false);
       showToast(`${surveyId} 를 불러왔습니다.`);
     } catch (err) {
       showToast(err instanceof Error ? err.message : "불러오기에 실패했습니다.");
@@ -326,8 +373,14 @@ export default function SurveyBuilder() {
           <div className="builder-sub">설문 문항 생성 및 저장</div>
         </div>
         <div className="builder-actions">
-          <button className="builder-btn secondary" onClick={() => setShowList((v) => !v)}>
-            저장된 설문 {surveyList.length > 0 ? `(${surveyList.length})` : ""}
+          <button
+            className="builder-btn secondary"
+            onClick={() => {
+              setShowList((v) => !v);
+              if (password) void refreshList(password);
+            }}
+          >
+            📁 보관함 {surveyList.length > 0 ? `(${surveyList.length})` : ""}
           </button>
           <a className="builder-btn secondary" href="/admin/responses">
             응답 현황
@@ -348,7 +401,7 @@ export default function SurveyBuilder() {
       {showList && (
         <div className="survey-list-panel">
           <div className="survey-list-head">
-            <strong>저장된 설문</strong>
+            <strong>📁 보관함 — 저장된 설문</strong>
             <button className="text-muted" onClick={() => setShowList(false)}>닫기</button>
           </div>
           {surveyList.length === 0 && <div className="empty-box">저장된 설문이 없습니다.</div>}
@@ -358,14 +411,20 @@ export default function SurveyBuilder() {
                 <div className="survey-list-title">
                   {item.title}
                   {item.source === "code" && <span className="survey-list-tag">코드</span>}
+                  {item.source === "firestore" && item.responseCount > 0 && (
+                    <span className="survey-list-tag deployed">배포됨 · 응답 {item.responseCount}건</span>
+                  )}
+                  {item.source === "firestore" && item.responseCount === 0 && (
+                    <span className="survey-list-tag draft">응답 대기</span>
+                  )}
                 </div>
                 <div className="survey-list-meta">
                   {item.id} · 응답 {item.responseCount}건
                 </div>
               </div>
               <div className="survey-list-actions">
-                <button className="builder-btn secondary" onClick={() => loadSurvey(item.id)}>
-                  불러오기
+                <button className="builder-btn secondary" onClick={() => loadSurvey(item)}>
+                  {item.responseCount > 0 ? "불러와서 수정" : "불러오기"}
                 </button>
                 <button
                   className="builder-btn danger"
@@ -563,6 +622,30 @@ export default function SurveyBuilder() {
           <pre className="json-box">{configText}</pre>
         </aside>
       </div>
+
+      {confirmState && (
+        <div className="confirm-overlay" role="dialog" aria-modal="true">
+          <div className="confirm-box">
+            <h3 className="confirm-title">{confirmState.title}</h3>
+            <p className="confirm-message">{confirmState.message}</p>
+            <div className="confirm-actions">
+              <button className="builder-btn secondary" onClick={() => setConfirmState(null)}>
+                취소
+              </button>
+              <button
+                className="builder-btn primary"
+                onClick={() => {
+                  const action = confirmState.onConfirm;
+                  setConfirmState(null);
+                  action();
+                }}
+              >
+                {confirmState.confirmLabel}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
