@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { SurveyConfig, SurveyQuestion, UploadedFile } from "@/lib/types";
 import { isOtherValue, isQuestionVisible, otherLabelOf } from "@/lib/survey-utils";
@@ -31,6 +31,7 @@ export default function SurveyForm({ config, token, editCode }: Props) {
   const initialAnswers = useMemo(() => getInitialAnswers(config), [config]);
   const [answers, setAnswers] = useState<Answers>(initialAnswers);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const submittingRef = useRef(false);
   const [uploadingCount, setUploadingCount] = useState(0);
   const [error, setError] = useState("");
   const [step, setStep] = useState(0);
@@ -176,6 +177,8 @@ export default function SurveyForm({ config, token, editCode }: Props) {
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    // 이중 제출 차단: state보다 먼저 동기적으로 잠금 (빠른 재클릭·중복 제출 방지)
+    if (submittingRef.current) return;
     setError("");
 
     if (uploadingCount > 0) {
@@ -196,6 +199,7 @@ export default function SurveyForm({ config, token, editCode }: Props) {
       return;
     }
 
+    submittingRef.current = true;
     setIsSubmitting(true);
 
     try {
@@ -216,7 +220,7 @@ export default function SurveyForm({ config, token, editCode }: Props) {
         throw new Error(result.message || "응답 제출 중 오류가 발생했습니다.");
       }
 
-      // 수정 코드가 발급됐거나(신규) 수정 완료면 인라인 완료 화면 표시
+      // 성공: 잠금을 풀지 않는다 (완료 화면 전환/페이지 이동 동안 재제출 방지)
       if (result.edit_code) {
         setIssuedCode(result.edit_code);
         setDone("new");
@@ -231,9 +235,10 @@ export default function SurveyForm({ config, token, editCode }: Props) {
 
       router.push(`/complete?surveyId=${encodeURIComponent(config.id)}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "응답 제출 중 오류가 발생했습니다.");
-    } finally {
+      // 실패했을 때만 잠금 해제 → 다시 시도 가능
+      submittingRef.current = false;
       setIsSubmitting(false);
+      setError(err instanceof Error ? err.message : "응답 제출 중 오류가 발생했습니다.");
     }
   }
 

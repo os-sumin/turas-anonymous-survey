@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { createHash } from "crypto";
 import { FieldValue } from "firebase-admin/firestore";
 import { getBucket, getDb, isFirebaseConfigured, isStorageConfigured } from "@/lib/firebase-admin";
 import { loadSurveyConfig } from "@/lib/survey-store";
@@ -64,6 +65,16 @@ export async function POST(request: Request) {
     const responseId = crypto.randomUUID();
     const submittedAt = new Date().toISOString();
 
+    // 이중 제출 방지: 같은 IP·같은 내용이 60초 내 다시 오면 새 응답을 만들지 않고 첫 응답을 반환
+    const ip = getClientIp(request);
+    const contentHash = createHash("sha256")
+      .update(`${config.id}|${ip}|${stableStringify(validation.answers)}`)
+      .digest("hex");
+    const dup = await claimSubmission(config.id, contentHash, responseId);
+    if (dup.duplicate) {
+      return NextResponse.json({ ok: true, response_id: dup.responseId || responseId, duplicate: true, edit_code: null });
+    }
+
     const payload: Record<string, unknown> = {
       survey_id: config.id,
       response_id: responseId,
@@ -101,6 +112,41 @@ export async function POST(request: Request) {
 
 function badRequest(message: string) {
   return NextResponse.json({ ok: false, message }, { status: 400 });
+}
+
+/** 키 순서와 무관하게 동일 내용이면 같은 문자열을 내는 안정적 직렬화 (중복 감지용) */
+function stableStringify(value: unknown): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "null";
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
+  const obj = value as Record<string, unknown>;
+  const keys = Object.keys(obj).sort();
+  return `{${keys.map((k) => `${JSON.stringify(k)}:${stableStringify(obj[k])}`).join(",")}}`;
+}
+
+/**
+ * 이중 제출 방지: (설문·IP·내용) 해시로 dedup 문서를 트랜잭션 생성.
+ * 60초 내 같은 해시가 이미 있으면 중복으로 보고 첫 응답 id를 돌려준다.
+ */
+async function claimSubmission(
+  surveyId: string,
+  contentHash: string,
+  responseId: string
+): Promise<{ duplicate: boolean; responseId?: string }> {
+  if (!isFirebaseConfigured()) return { duplicate: false };
+  const WINDOW_MS = 60 * 1000;
+  const db = getDb();
+  const ref = db.collection("surveys").doc(surveyId).collection("dedup").doc(contentHash);
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (snap.exists) {
+      const data = snap.data() as { at?: number; response_id?: string };
+      if (data.at && Date.now() - data.at < WINDOW_MS) {
+        return { duplicate: true, responseId: data.response_id };
+      }
+    }
+    tx.set(ref, { at: Date.now(), response_id: responseId });
+    return { duplicate: false };
+  });
 }
 
 function collectFiles(answers: Record<string, unknown>): UploadedFile[] {
