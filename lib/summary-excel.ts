@@ -3,9 +3,12 @@ import { buildHeaders, formatAnswer, formatKST, isFileAnswer } from "./response-
 import type { SurveyConfig, SurveyTargetSnapshot, UploadedFile } from "./types";
 import {
   COMPANY_CORRECTIONS_ID,
-  COMPANY_FIELDS,
   CONTRACT_CORRECTION_ID,
-  CONTRACT_MATCH_ID
+  CONTRACT_MATCH_ID,
+  formatTargetFieldValue,
+  getPersonalizationBlocks,
+  targetFieldValue,
+  visibleBlockFields
 } from "./personalization";
 
 type ResponseLike = {
@@ -50,34 +53,37 @@ export async function buildSummaryWorkbook(
   sheet.addRow({});
 
   if (record.target) {
+    const personalizationBlocks = getPersonalizationBlocks(config);
+    const companyBlock = personalizationBlocks.find((block) => block.source === "company");
+    const contractBlock = personalizationBlocks.find((block) => block.source === "contract");
     const correctionSource = record.answers[COMPANY_CORRECTIONS_ID];
     const corrections =
       correctionSource && typeof correctionSource === "object" && !Array.isArray(correctionSource)
         ? correctionSource as Record<string, unknown>
         : {};
-    for (const field of COMPANY_FIELDS) {
+    if (companyBlock) {
+      for (const field of visibleBlockFields(companyBlock)) {
+        sheet.addRow({
+          section: companyBlock.title,
+          question: field.label,
+          answer: `KEITI 보유: ${formatTargetFieldValue(targetFieldValue(record.target, "company", field.key), field.key)}\n정정: ${String(corrections[field.key] ?? "")}`
+        }).alignment = { vertical: "top", wrapText: true };
+      }
+    }
+    if (contractBlock) {
+      for (const field of visibleBlockFields(contractBlock)) {
+        sheet.addRow({
+          section: contractBlock.title,
+          question: field.label,
+          answer: formatTargetFieldValue(targetFieldValue(record.target, "contract", field.key), field.key)
+        }).alignment = { vertical: "top", wrapText: true };
+      }
       sheet.addRow({
-        section: "1-1 기업정보",
-        question: field.label,
-        answer: `KEITI 보유: ${record.target.company[field.key] || ""}\n정정: ${String(corrections[field.key] ?? "")}`
+        section: contractBlock.title,
+        question: "일치 여부 및 정정 내용",
+        answer: `${formatAnswer(record.answers[CONTRACT_MATCH_ID])}\n${formatAnswer(record.answers[CONTRACT_CORRECTION_ID])}`.trim()
       }).alignment = { vertical: "top", wrapText: true };
     }
-    sheet.addRow({
-      section: "1-3 계약정보",
-      question: "KEITI 보유 정보",
-      answer: [
-        `연구개발과제명: ${record.target.contract.projectName}`,
-        `기술이전기관: ${record.target.contract.transferInstitution}`,
-        `기술실시계약명: ${record.target.contract.contractName}`,
-        `계약 체결일: ${record.target.contract.signedAt}`,
-        `계약금액(기술료): ${record.target.contract.amount === null ? "" : record.target.contract.amount.toLocaleString("ko-KR") + "원"}`
-      ].join("\n")
-    }).alignment = { vertical: "top", wrapText: true };
-    sheet.addRow({
-      section: "1-3 계약정보",
-      question: "일치 여부 및 정정 내용",
-      answer: `${formatAnswer(record.answers[CONTRACT_MATCH_ID])}\n${formatAnswer(record.answers[CONTRACT_CORRECTION_ID])}`.trim()
-    }).alignment = { vertical: "top", wrapText: true };
     sheet.addRow({});
   }
 

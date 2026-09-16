@@ -5,6 +5,7 @@ import { isFirebaseConfigured } from "@/lib/firebase-admin";
 import { loadSurveyConfig } from "@/lib/survey-store";
 import { isPersonalizedSurvey, issueSurveyTargets, type SurveyTargetInput } from "@/lib/target-store";
 import { styleTargetSheet, TARGET_TEMPLATE_HEADERS } from "@/lib/target-excel";
+import { getPersonalizationBlocks, visibleBlockFields } from "@/lib/personalization";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -38,11 +39,16 @@ export async function POST(request: Request) {
     if (!sheet) return jsonError("엑셀에 시트가 없습니다.", 400);
 
     const headerMap = readHeaderMap(sheet);
-    const missing = TARGET_TEMPLATE_HEADERS.filter((header) => header !== "계약ID" && header !== "링크만료일시" && !headerMap.has(header));
+    const requiredHeaders = new Set<HeaderName>(["기업ID", "과제ID"]);
+    for (const block of getPersonalizationBlocks(config)) {
+      for (const field of visibleBlockFields(block)) requiredHeaders.add(field.header as HeaderName);
+    }
+    const missing = [...requiredHeaders].filter((header) => !headerMap.has(header));
     if (missing.length > 0) return jsonError(`필수 열이 없습니다: ${missing.join(", ")}`, 400);
 
     const inputs: SurveyTargetInput[] = [];
     const sourceRows: Record<HeaderName, string | number | null>[] = [];
+    const warningFlags: boolean[] = [];
     for (let rowNumber = 2; rowNumber <= sheet.rowCount; rowNumber += 1) {
       const row = sheet.getRow(rowNumber);
       const companyId = readText(row, headerMap, "기업ID");
@@ -55,6 +61,7 @@ export async function POST(request: Request) {
       const source = Object.fromEntries(
         TARGET_TEMPLATE_HEADERS.map((header) => [header, header === "계약금액(기술료)" ? amount : readText(row, headerMap, header)])
       ) as Record<HeaderName, string | number | null>;
+      const missingValues = [...requiredHeaders].filter((header) => !readText(row, headerMap, header));
 
       inputs.push({
         companyId,
@@ -78,6 +85,7 @@ export async function POST(request: Request) {
         expiresAt: readText(row, headerMap, "링크만료일시") || undefined
       });
       sourceRows.push(source);
+      warningFlags.push(missingValues.length > 0);
     }
 
     if (inputs.length === 0) return jsonError("등록할 조사대상 행이 없습니다.", 400);
@@ -92,7 +100,7 @@ export async function POST(request: Request) {
         ...TARGET_TEMPLATE_HEADERS.map((header) => sourceRows[index][header]),
         item.targetId,
         item.link,
-        "등록 완료"
+        warningFlags[index] ? "등록 완료(표시정보 일부 없음)" : "등록 완료"
       ]);
     });
     styleTargetSheet(outSheet);
@@ -107,7 +115,8 @@ export async function POST(request: Request) {
         "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`,
         "Cache-Control": "no-store",
-        "X-Imported-Count": String(issued.length)
+        "X-Imported-Count": String(issued.length),
+        "X-Import-Warning-Count": String(warningFlags.filter(Boolean).length)
       }
     });
   } catch (error) {

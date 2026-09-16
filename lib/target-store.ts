@@ -115,6 +115,32 @@ export async function resolveSurveyTarget(surveyId: string, token?: string): Pro
   return { ok: true, value: { target, tokenHash } };
 }
 
+/** 설문 제작 화면 미리보기용 조사대상 1건. 토큰과 토큰 해시는 반환하지 않는다. */
+export async function getSurveyTargetPreview(surveyId: string): Promise<SurveyTarget | null> {
+  if (!isFirebaseConfigured()) throw new Error("Firebase가 설정되지 않았습니다.");
+  const snap = await getDb()
+    .collection(TARGET_COLLECTION)
+    .where("survey_id", "==", surveyId)
+    .limit(1)
+    .get();
+  if (snap.empty) return null;
+
+  const doc = snap.docs[0];
+  const data = doc.data() as Record<string, unknown>;
+  return {
+    targetId: doc.id,
+    surveyId,
+    companyId: String(data.company_id || ""),
+    projectId: String(data.project_id || ""),
+    contractId: String(data.contract_id || ""),
+    company: normalizeCompany(data.company),
+    contract: normalizeContract(data.contract),
+    active: data.active !== false,
+    expiresAt: typeof data.expires_at === "string" ? data.expires_at : undefined,
+    responseId: typeof data.response_id === "string" ? data.response_id : undefined
+  };
+}
+
 /**
  * 조사대상을 등록하면서 새 링크를 발급한다. 같은 기업+과제+계약을 다시 올리면
  * targetId는 유지되고 접근 토큰만 교체되어 이전 링크는 자동으로 무효화된다.

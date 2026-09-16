@@ -2,6 +2,7 @@ import { FieldValue } from "firebase-admin/firestore";
 import { getDb, isFirebaseConfigured } from "./firebase-admin";
 import { surveys as builtinSurveys } from "./survey.config";
 import type { SurveyConfig } from "./types";
+import { getPersonalizationBlocks, visibleBlockFields } from "./personalization";
 
 const CONFIG_COLLECTION = "survey_configs";
 
@@ -151,6 +152,40 @@ export function validateSurveyConfig(value: unknown): { ok: true; config: Survey
         return { ok: false, message: `문항 "${question.id}"의 제목을 입력해 주세요.` };
       }
     }
+  }
+
+  if (config.personalization?.enabled) {
+    const blocks = getPersonalizationBlocks(config);
+    if (blocks.length === 0) {
+      return { ok: false, message: "맞춤형 설문에는 맞춤정보 블록이 최소 1개 필요합니다." };
+    }
+    const blockIds = new Set<string>();
+    const blockSources = new Set<string>();
+    for (const block of blocks) {
+      if (!block.id || blockIds.has(block.id)) {
+        return { ok: false, message: `맞춤정보 블록 ID가 비어 있거나 중복되었습니다: ${block.id || "(빈 값)"}` };
+      }
+      blockIds.add(block.id);
+      if (blockSources.has(block.source)) {
+        return { ok: false, message: `${block.source === "company" ? "기업정보" : "기술실시계약 정보"} 블록은 하나만 추가할 수 있습니다.` };
+      }
+      blockSources.add(block.source);
+      if (!block.title.trim()) return { ok: false, message: "맞춤정보 블록 제목을 입력해 주세요." };
+      if (visibleBlockFields(block).length === 0) {
+        return { ok: false, message: `"${block.title}" 블록의 표시항목을 최소 1개 선택해 주세요.` };
+      }
+      const section = config.sections.find((item) => item.id === block.sectionId);
+      if (!section) return { ok: false, message: `"${block.title}" 블록의 표시 섹션을 확인해 주세요.` };
+      if (block.position === "after_question") {
+        if (!block.afterQuestionId || !section.questions.some((question) => question.id === block.afterQuestionId)) {
+          return { ok: false, message: `"${block.title}" 블록의 기준 문항을 선택해 주세요.` };
+        }
+      }
+    }
+    config.personalization.blocks = blocks;
+    config.personalization.companyVerification = blocks.some((block) => block.source === "company");
+    config.personalization.contractVerification = blocks.some((block) => block.source === "contract");
+    config.personalization.contractAfterQuestionId = undefined;
   }
 
   if (!Array.isArray(config.notice)) config.notice = [];

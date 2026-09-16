@@ -1089,6 +1089,58 @@ body {
   border-color: #2563eb;
 }
 
+/* 설문 제작 화면: 맞춤정보 표시 블록 */
+.personalization-editor { margin-top: 24px; padding-top: 24px; border-top: 1px solid #d9e4f0; }
+.personalization-editor-head {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 14px;
+}
+.personalization-editor-head h2 { margin: 0 0 6px; font-size: 19px; }
+.personalization-editor-head p { margin: 0; color: #64748b; font-size: 13px; line-height: 1.55; }
+.personalization-editor-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.personalization-block-list { display: grid; gap: 14px; }
+.personalization-block-card { border: 1px solid #cbd7e6; border-radius: 16px; padding: 18px; background: #fbfdff; }
+.personalization-block-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; margin-bottom: 16px; }
+.personalization-block-head > div { display: grid; gap: 7px; }
+.personalization-block-head strong { font-size: 15px; line-height: 1.45; }
+.personalization-source {
+  width: fit-content; padding: 4px 8px; border-radius: 999px; background: #eaf2ff; color: #1357d8;
+  font-size: 12px; font-weight: 800;
+}
+.personalization-block-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.personalization-block-grid label { display: grid; gap: 7px; color: #334155; font-weight: 800; font-size: 13px; }
+.personalization-block-grid input, .personalization-block-grid select,
+.personalization-field-row > input {
+  width: 100%; border: 1px solid #cbd7e6; border-radius: 10px; padding: 10px 11px;
+  font: inherit; color: #1f2d3d; background: #fff;
+}
+.personalization-field-head { display: flex; align-items: baseline; gap: 10px; margin: 18px 0 9px; }
+.personalization-field-head strong { font-size: 14px; }
+.personalization-field-head span { color: #64748b; font-size: 12px; }
+.personalization-field-list { display: grid; gap: 7px; }
+.personalization-field-row {
+  display: grid; grid-template-columns: 72px minmax(170px, .8fr) minmax(190px, 1fr) 72px;
+  gap: 8px; align-items: center; padding: 8px; border: 1px solid #e2e8f0; border-radius: 11px;
+  background: #f8fafc; opacity: .68;
+}
+.personalization-field-row.is-visible { background: #fff; border-color: #bfd3ef; opacity: 1; }
+.personalization-field-check { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 800; }
+.personalization-field-source { color: #475569; font-size: 12px; line-height: 1.4; }
+.personalization-order-actions { display: flex; gap: 5px; justify-content: flex-end; }
+.personalization-order-actions button {
+  width: 32px; height: 32px; border: 1px solid #cbd7e6; border-radius: 8px; background: #fff; color: #1357d8; cursor: pointer;
+}
+.personalization-order-actions button:disabled { color: #aab4c2; cursor: not-allowed; background: #f1f5f9; }
+.personalization-preview { margin-top: 16px; padding: 16px; border: 1px solid #bfdbfe; border-radius: 16px; background: #f4f8fd; }
+.personalization-preview-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px; }
+.personalization-preview-head span { color: #64748b; font-size: 12px; }
+.personalization-preview-block { margin-top: 12px; padding: 15px; border: 1px solid #d9e4f0; border-radius: 13px; background: #fff; }
+.personalization-preview-block > strong { display: block; margin-bottom: 10px; line-height: 1.45; }
+.personalization-preview-block table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.personalization-preview-block th, .personalization-preview-block td { padding: 8px 9px; border: 1px solid #e2e8f0; text-align: left; }
+.personalization-preview-block thead th, .personalization-preview-block tbody th { background: #f8fafc; }
+.personalization-preview-block .preview-empty { color: #94a3b8; }
+.personalization-preview-options { margin-top: 10px; color: #475569; font-size: 12px; line-height: 1.6; }
+
 /* 기업·과제별 맞춤정보 확인(1-1, 1-3) */
 .target-verification { display: grid; gap: 26px; margin: 18px 0 28px; }
 .target-context-badge {
@@ -1124,6 +1176,12 @@ body {
 .target-manager-message { margin-top: 18px; }
 
 @media (max-width: 720px) {
+  .personalization-editor-head, .personalization-preview-head { flex-direction: column; align-items: stretch; }
+  .personalization-editor-actions { justify-content: stretch; }
+  .personalization-editor-actions .builder-btn { flex: 1; }
+  .personalization-block-grid { grid-template-columns: 1fr; }
+  .personalization-field-row { grid-template-columns: 68px 1fr 68px; }
+  .personalization-field-row > input { grid-column: 1 / -1; grid-row: 2; }
   .contract-match-options { grid-template-columns: 1fr; }
   .target-context-badge { align-items: flex-start; flex-direction: column; }
   .target-context-badge span::before { content: none; }

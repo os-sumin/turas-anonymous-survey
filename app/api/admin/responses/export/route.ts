@@ -14,9 +14,11 @@ import {
 import type { UploadedFile } from "@/lib/types";
 import {
   COMPANY_CORRECTIONS_ID,
-  COMPANY_FIELDS,
   CONTRACT_CORRECTION_ID,
-  CONTRACT_MATCH_ID
+  CONTRACT_MATCH_ID,
+  getPersonalizationBlocks,
+  targetFieldValue,
+  visibleBlockFields
 } from "@/lib/personalization";
 
 export const runtime = "nodejs";
@@ -45,6 +47,11 @@ export async function GET(request: Request) {
 
     const headers = buildHeaders(config);
     const records = await listResponses(surveyId, 5000);
+    const personalizationBlocks = getPersonalizationBlocks(config);
+    const companyBlock = personalizationBlocks.find((block) => block.source === "company");
+    const contractBlock = personalizationBlocks.find((block) => block.source === "contract");
+    const companyFields = companyBlock ? visibleBlockFields(companyBlock) : [];
+    const contractFields = contractBlock ? visibleBlockFields(contractBlock) : [];
 
     const workbook = new ExcelJS.Workbook();
     workbook.creator = "TURAS Survey";
@@ -60,24 +67,27 @@ export async function GET(request: Request) {
           { header: "기업ID", key: "companyId", width: 18 },
           { header: "과제ID", key: "projectId", width: 20 },
           { header: "계약ID", key: "contractId", width: 20 },
-          { header: "KEITI 보유 기업명", key: "heldCompanyName", width: 24 },
-          { header: "KEITI 보유 사업자등록번호", key: "heldBusinessNumber", width: 20 },
-          { header: "KEITI 보유 대표자명", key: "heldRepresentative", width: 16 },
-          { header: "KEITI 보유 소재지", key: "heldRegion", width: 18 },
-          { header: "KEITI 보유 기업규모", key: "heldSize", width: 16 },
-          { header: "KEITI 보유 주요업종", key: "heldIndustry", width: 24 },
-          ...COMPANY_FIELDS.map((field) => ({
-            header: `1-1 정정_${field.label.replace(/^\S+\s*/, "")}`,
+          ...companyFields.map((field) => ({
+            header: `KEITI 보유_${field.label}`,
+            key: `held_company_${field.key}`,
+            width: 24
+          })),
+          ...companyFields.map((field) => ({
+            header: `${companyBlock?.title || "기업정보"}_정정_${field.label}`,
             key: `correction_${field.key}`,
             width: 24
           })),
-          { header: "KEITI 보유 연구개발과제명", key: "heldProjectName", width: 40 },
-          { header: "KEITI 보유 기술이전기관", key: "heldTransferInstitution", width: 28 },
-          { header: "KEITI 보유 기술실시계약명", key: "heldContractName", width: 34 },
-          { header: "KEITI 보유 계약체결일", key: "heldSignedAt", width: 18 },
-          { header: "KEITI 보유 계약금액(기술료)", key: "heldAmount", width: 22 },
-          { header: "1-3 일치 여부", key: "contractMatch", width: 28 },
-          { header: "1-3 정정 내용", key: "contractCorrection", width: 45 }
+          ...contractFields.map((field) => ({
+            header: `KEITI 보유_${field.label}`,
+            key: `held_contract_${field.key}`,
+            width: field.key === "projectName" ? 40 : 24
+          })),
+          ...(contractBlock
+            ? [
+                { header: `${contractBlock.title}_일치 여부`, key: "contractMatch", width: 28 },
+                { header: `${contractBlock.title}_정정 내용`, key: "contractCorrection", width: 45 }
+              ]
+            : [])
         ]
       : [];
 
@@ -111,17 +121,12 @@ export async function GET(request: Request) {
         row.companyId = record.target.companyId;
         row.projectId = record.target.projectId;
         row.contractId = record.target.contractId;
-        row.heldCompanyName = record.target.company.name;
-        row.heldBusinessNumber = record.target.company.businessNumber;
-        row.heldRepresentative = record.target.company.representative;
-        row.heldRegion = record.target.company.region;
-        row.heldSize = record.target.company.size;
-        row.heldIndustry = record.target.company.industry;
-        row.heldProjectName = record.target.contract.projectName;
-        row.heldTransferInstitution = record.target.contract.transferInstitution;
-        row.heldContractName = record.target.contract.contractName;
-        row.heldSignedAt = record.target.contract.signedAt;
-        row.heldAmount = record.target.contract.amount ?? "";
+        for (const field of companyFields) {
+          row[`held_company_${field.key}`] = targetFieldValue(record.target, "company", field.key) ?? "";
+        }
+        for (const field of contractFields) {
+          row[`held_contract_${field.key}`] = targetFieldValue(record.target, "contract", field.key) ?? "";
+        }
       }
 
       const companyCorrections = record.answers[COMPANY_CORRECTIONS_ID];
@@ -129,11 +134,13 @@ export async function GET(request: Request) {
         companyCorrections && typeof companyCorrections === "object" && !Array.isArray(companyCorrections)
           ? companyCorrections as Record<string, unknown>
           : {};
-      for (const field of COMPANY_FIELDS) {
+      for (const field of companyFields) {
         row[`correction_${field.key}`] = String(correctionMap[field.key] ?? "");
       }
-      row.contractMatch = formatAnswer(record.answers[CONTRACT_MATCH_ID]);
-      row.contractCorrection = formatAnswer(record.answers[CONTRACT_CORRECTION_ID]);
+      if (contractBlock) {
+        row.contractMatch = formatAnswer(record.answers[CONTRACT_MATCH_ID]);
+        row.contractCorrection = formatAnswer(record.answers[CONTRACT_CORRECTION_ID]);
+      }
 
       for (const header of headers) {
         row[header.id] = formatAnswer(record.answers[header.id]);

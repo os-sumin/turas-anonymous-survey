@@ -92,6 +92,30 @@ export type SurveySection = {
   questions: SurveyQuestion[];
 };
 
+export type PersonalizationSource = "company" | "contract";
+export type PersonalizationBlockPosition = "before_first" | "after_question" | "after_last";
+
+/** 조사대상 엑셀의 한 열을 맞춤정보 블록에 표시하는 설정 */
+export type PersonalizationFieldConfig = {
+  key: string;
+  label: string;
+  visible: boolean;
+};
+
+/** 설문 안에 배치하는 조사대상 맞춤정보 확인·정정 블록 */
+export type PersonalizationBlock = {
+  id: string;
+  source: PersonalizationSource;
+  title: string;
+  /** 비우면 첫 번째 섹션에 표시 */
+  sectionId?: string;
+  position: PersonalizationBlockPosition;
+  /** position이 after_question일 때 기준이 되는 일반 문항 ID */
+  afterQuestionId?: string;
+  /** 배열 순서가 화면 표시 순서이며 visible=false면 숨김 */
+  fields: PersonalizationFieldConfig[];
+};
+
 export type SurveyConfig = {
   id: string;
   agency: string;
@@ -112,6 +136,8 @@ export type SurveyConfig = {
   /** 기업·과제·계약별 발급 링크로 KEITI 보유정보를 맞춤 표시 */
   personalization?: {
     enabled: boolean;
+    /** 설문 제작 화면에서 관리하는 맞춤정보 표시 블록 */
+    blocks?: PersonalizationBlock[];
     /** 1-1 기업정보 확인·정정 표 표시. 기본 true */
     companyVerification?: boolean;
     /** 1-3 기술실시계약 정보 확인·정정 표 표시. 기본 true */

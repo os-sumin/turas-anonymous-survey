@@ -2,18 +2,26 @@
 
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { SurveyConfig, SurveyQuestion, SurveyTarget, UploadedFile } from "@/lib/types";
+import type {
+  PersonalizationBlock,
+  SurveyConfig,
+  SurveyQuestion,
+  SurveyTarget,
+  UploadedFile
+} from "@/lib/types";
 import { isOtherValue, isQuestionVisible, otherLabelOf } from "@/lib/survey-utils";
 import {
   COMPANY_CORRECTIONS_ID,
-  COMPANY_FIELDS,
   CONTRACT_CORRECTION_ID,
-  CONTRACT_FIELDS,
   CONTRACT_MATCH_ID,
   CONTRACT_MATCH_OPTIONS,
+  blocksForSection,
+  formatTargetFieldValue,
   hasCompanyVerification,
   hasContractVerification,
-  validatePersonalizedAnswers
+  targetFieldValue,
+  validatePersonalizedAnswers,
+  visibleBlockFields
 } from "@/lib/personalization";
 
 type Props = { config: SurveyConfig; token?: string; editCode?: string; target?: SurveyTarget };
@@ -102,11 +110,12 @@ export default function SurveyForm({ config, token, editCode, target }: Props) {
       setError("파일 업로드가 끝난 뒤 넘어가 주세요.");
       return;
     }
-    if (step === 0 && target) {
-      const personalized = validatePersonalizedAnswers(config, answers);
+    const stepSources = blocksForSection(config, currentSection.id).map((block) => block.source);
+    if (target && stepSources.length > 0) {
+      const personalized = validatePersonalizedAnswers(config, answers, stepSources);
       if (!personalized.ok) {
         setError(personalized.message);
-        scrollToPersonalizedProblem(personalized.message);
+        scrollToPersonalizedProblem(personalized.source);
         return;
       }
     }
@@ -210,9 +219,12 @@ export default function SurveyForm({ config, token, editCode, target }: Props) {
       const personalized = validatePersonalizedAnswers(config, answers);
       if (!personalized.ok) {
         setError(personalized.message);
-        setStep(0);
+        const problemSectionIndex = config.sections.findIndex((section) =>
+          blocksForSection(config, section.id).some((block) => block.source === personalized.source)
+        );
+        setStep(problemSectionIndex >= 0 ? problemSectionIndex : 0);
         setTimeout(() => {
-          scrollToPersonalizedProblem(personalized.message);
+          scrollToPersonalizedProblem(personalized.source);
         }, 50);
         return;
       }
@@ -331,6 +343,25 @@ export default function SurveyForm({ config, token, editCode, target }: Props) {
     );
   }
 
+  const visibleQuestions = currentSection.questions.filter((question) => isQuestionVisible(question, answers));
+  const visibleQuestionIds = new Set(visibleQuestions.map((question) => question.id));
+  const sectionBlocks = target ? blocksForSection(config, currentSection.id) : [];
+  const beforeBlocks = sectionBlocks.filter((block) => block.position === "before_first");
+  const trailingBlocks = sectionBlocks.filter((block) =>
+    block.position === "after_last" ||
+    (block.position === "after_question" && (!block.afterQuestionId || !visibleQuestionIds.has(block.afterQuestionId)))
+  );
+
+  const renderPersonalizationBlock = (block: PersonalizationBlock) => target ? (
+    <TargetVerification
+      key={block.id}
+      block={block}
+      target={target}
+      answers={answers}
+      setAnswer={setAnswer}
+    />
+  ) : null;
+
   return (
     <form className="form-body" onSubmit={handleSubmit}>
       {activeEditCode && (
@@ -374,63 +405,29 @@ export default function SurveyForm({ config, token, editCode, target }: Props) {
       <section className="section" key={currentSection.id}>
         <h2 className="section-title">{currentSection.title}</h2>
         {currentSection.description && <p className="section-description">{currentSection.description}</p>}
-        {step === 0 && target && hasCompanyVerification(config) && (
-          <TargetVerification
-            config={config}
-            target={target}
-            answers={answers}
-            setAnswer={setAnswer}
-            part="company"
-          />
-        )}
-        {(() => {
-          const visibleQuestions = currentSection.questions.filter((question) => isQuestionVisible(question, answers));
-          const configuredAnchor = config.personalization?.contractAfterQuestionId;
-          const configuredAnchorIndex = configuredAnchor
-            ? visibleQuestions.findIndex((question) => question.id === configuredAnchor)
-            : -1;
-          const contractAnchorIndex = configuredAnchorIndex >= 0 ? configuredAnchorIndex : 0;
-          return (
-            <>
-              {visibleQuestions.map((question, index) => (
-                <Fragment key={question.id}>
-                  <QuestionField
-                    surveyId={config.id}
-                    token={token}
-                    question={question}
-                    value={answers[question.id]}
-                    setAnswer={setAnswer}
-                    toggleMultiple={toggleMultiple}
-                    setRankValue={setRankValue}
-                    setMatrixCell={setMatrixCell}
-                    toggleMatrixCell={toggleMatrixCell}
-                    setGridCell={setGridCell}
-                    onUploadStart={() => setUploadingCount((n) => n + 1)}
-                    onUploadEnd={() => setUploadingCount((n) => Math.max(0, n - 1))}
-                  />
-                  {step === 0 && target && index === contractAnchorIndex && hasContractVerification(config) && (
-                    <TargetVerification
-                      config={config}
-                      target={target}
-                      answers={answers}
-                      setAnswer={setAnswer}
-                      part="contract"
-                    />
-                  )}
-                </Fragment>
-              ))}
-              {step === 0 && target && visibleQuestions.length === 0 && hasContractVerification(config) && (
-                <TargetVerification
-                  config={config}
-                  target={target}
-                  answers={answers}
-                  setAnswer={setAnswer}
-                  part="contract"
-                />
-              )}
-            </>
-          );
-        })()}
+        {beforeBlocks.map(renderPersonalizationBlock)}
+        {visibleQuestions.map((question) => (
+          <Fragment key={question.id}>
+            <QuestionField
+              surveyId={config.id}
+              token={token}
+              question={question}
+              value={answers[question.id]}
+              setAnswer={setAnswer}
+              toggleMultiple={toggleMultiple}
+              setRankValue={setRankValue}
+              setMatrixCell={setMatrixCell}
+              toggleMatrixCell={toggleMatrixCell}
+              setGridCell={setGridCell}
+              onUploadStart={() => setUploadingCount((n) => n + 1)}
+              onUploadEnd={() => setUploadingCount((n) => Math.max(0, n - 1))}
+            />
+            {sectionBlocks
+              .filter((block) => block.position === "after_question" && block.afterQuestionId === question.id)
+              .map(renderPersonalizationBlock)}
+          </Fragment>
+        ))}
+        {trailingBlocks.map(renderPersonalizationBlock)}
       </section>
 
       <div className="actions step-actions">
@@ -501,18 +498,18 @@ export default function SurveyForm({ config, token, editCode, target }: Props) {
 }
 
 function TargetVerification({
-  config,
+  block,
   target,
   answers,
-  setAnswer,
-  part
+  setAnswer
 }: {
-  config: SurveyConfig;
+  block: PersonalizationBlock;
   target: SurveyTarget;
   answers: Answers;
   setAnswer: (questionId: string, value: AnswerValue) => void;
-  part: "company" | "contract";
 }) {
+  const part = block.source;
+  const fields = visibleBlockFields(block);
   const corrections = isMapValue(answers[COMPANY_CORRECTIONS_ID])
     ? answers[COMPANY_CORRECTIONS_ID] as MapValue
     : {};
@@ -550,9 +547,9 @@ function TargetVerification({
         </div>
       )}
 
-      {part === "company" && hasCompanyVerification(config) && (
+      {part === "company" && (
         <div className="verification-block">
-          <div className="question-title">1-1. 아래 기업정보가 귀사와 일치합니까? 다른 내용이 있으면 정정하여 작성해주십시오.</div>
+          <div className="question-title">{block.title}</div>
           <div className="verification-table-wrap">
             <table className="verification-table">
               <thead>
@@ -563,8 +560,8 @@ function TargetVerification({
                 </tr>
               </thead>
               <tbody>
-                {COMPANY_FIELDS.map((field) => {
-                  const heldValue = target.company[field.key] || "보유정보 없음";
+                {fields.map((field) => {
+                  const heldValue = formatTargetFieldValue(targetFieldValue(target, "company", field.key), field.key);
                   const correctionValue = String(corrections[field.key] ?? "");
                   return (
                     <tr key={field.key}>
@@ -603,9 +600,9 @@ function TargetVerification({
         </div>
       )}
 
-      {part === "contract" && hasContractVerification(config) && (
+      {part === "contract" && (
         <div className="verification-block">
-          <div className="question-title">1-3. 아래 기술실시계약 정보가 계약서와 일치합니까?</div>
+          <div className="question-title">{block.title}</div>
           <div className="verification-table-wrap">
             <table className="verification-table contract-table">
               <thead>
@@ -615,13 +612,11 @@ function TargetVerification({
                 </tr>
               </thead>
               <tbody>
-                {CONTRACT_FIELDS.map((field) => (
+                {fields.map((field) => (
                   <tr key={field.key}>
                     <th scope="row">{field.label}</th>
                     <td className="held-value">
-                      {field.key === "amount"
-                        ? formatContractAmount(target.contract.amount)
-                        : target.contract[field.key] || "보유정보 없음"}
+                      {formatTargetFieldValue(targetFieldValue(target, "contract", field.key), field.key)}
                     </td>
                   </tr>
                 ))}
@@ -657,15 +652,8 @@ function TargetVerification({
   );
 }
 
-function formatContractAmount(value: number | null): string {
-  if (value === null || !Number.isFinite(value)) return "보유정보 없음";
-  return `${value.toLocaleString("ko-KR")}원`;
-}
-
-function scrollToPersonalizedProblem(message: string) {
-  const id = message.startsWith("1-3") || message.startsWith("‘")
-    ? "personalized-contract-verification"
-    : "personalized-company-verification";
+function scrollToPersonalizedProblem(source: "company" | "contract") {
+  const id = source === "contract" ? "personalized-contract-verification" : "personalized-company-verification";
   document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "center" });
 }
 

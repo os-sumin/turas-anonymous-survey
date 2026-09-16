@@ -2,7 +2,9 @@
 
 import { useEffect, useState } from "react";
 import type { GridColumn, QuestionType, SurveyConfig, SurveyImage, SurveyQuestion, SurveySection } from "@/lib/types";
+import { makeDefaultPersonalizationBlocks } from "@/lib/personalization";
 import { otherLabelOf } from "@/lib/survey-utils";
+import PersonalizationBlockEditor from "@/components/PersonalizationBlockEditor";
 
 type DraftQuestion = SurveyQuestion;
 type DraftSection = SurveySection;
@@ -660,52 +662,17 @@ export default function SurveyBuilder() {
                       ...prev,
                       anonymous: enabled ? false : prev.anonymous,
                       personalization: {
+                        ...prev.personalization,
                         enabled,
-                        companyVerification: prev.personalization?.companyVerification !== false,
-                        contractVerification: prev.personalization?.contractVerification !== false
+                        blocks: prev.personalization?.blocks?.length
+                          ? prev.personalization.blocks
+                          : makeDefaultPersonalizationBlocks(prev)
                       }
                     }));
                   }}
                 />
                 기업·과제별 맞춤형 설문 (개별 토큰 링크)
               </label>
-              {survey.personalization?.enabled && (
-                <>
-                  <label className="builder-check">
-                    <input
-                      type="checkbox"
-                      checked={survey.personalization.companyVerification !== false}
-                      onChange={(event) => updateSurvey("personalization", {
-                        ...survey.personalization!,
-                        companyVerification: event.target.checked
-                      })}
-                    />
-                    1-1 기업정보 확인·정정 표시
-                  </label>
-                  <label className="builder-check">
-                    <input
-                      type="checkbox"
-                      checked={survey.personalization.contractVerification !== false}
-                      onChange={(event) => updateSurvey("personalization", {
-                        ...survey.personalization!,
-                        contractVerification: event.target.checked
-                      })}
-                    />
-                    1-3 기술실시계약 확인·정정 표시
-                  </label>
-                  <label>
-                    1-3 배치 기준 문항 ID
-                    <input
-                      placeholder="비우면 첫 문항(1-2) 뒤에 표시"
-                      value={survey.personalization.contractAfterQuestionId || ""}
-                      onChange={(event) => updateSurvey("personalization", {
-                        ...survey.personalization!,
-                        contractAfterQuestionId: event.target.value.trim() || undefined
-                      })}
-                    />
-                  </label>
-                </>
-              )}
               <label className="builder-check">
                 <input
                   type="checkbox"
@@ -723,6 +690,22 @@ export default function SurveyBuilder() {
                 보관(종료) — 체크하면 저장 시 응답을 더 이상 받지 않음
               </label>
             </div>
+
+            {survey.personalization?.enabled && (
+              <PersonalizationBlockEditor
+                survey={survey}
+                password={password}
+                onNotify={showToast}
+                onChange={(blocks) => updateSurvey("personalization", {
+                  ...survey.personalization!,
+                  enabled: true,
+                  blocks,
+                  companyVerification: blocks.some((block) => block.source === "company"),
+                  contractVerification: blocks.some((block) => block.source === "contract"),
+                  contractAfterQuestionId: undefined
+                })}
+              />
+            )}
           </div>
 
           <div className="builder-card">
