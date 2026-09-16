@@ -40,6 +40,11 @@ function makeInitialSurvey(): SurveyConfig {
     notice: ["제출해 주신 자료는 조사 목적 외에는 사용되지 않습니다."],
     endAt: "",
     anonymous: false,
+    personalization: {
+      enabled: false,
+      companyVerification: true,
+      contractVerification: true
+    },
     sections: [
       {
         id: "section_1",
@@ -95,6 +100,8 @@ export default function SurveyBuilder() {
 
   useEffect(() => {
     if (password) void refreshList(password);
+    // refreshList는 전달받은 비밀번호와 상태 setter만 사용한다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [password]);
 
   function showToast(message: string) {
@@ -484,6 +491,9 @@ export default function SurveyBuilder() {
           <a className="builder-btn secondary" href="/admin/responses">
             응답 현황
           </a>
+          <a className="builder-btn secondary" href="/admin/targets">
+            조사대상 관리
+          </a>
           <a className="builder-btn secondary" href={`/survey/${survey.id}`} target="_blank">
             응답화면 열기
           </a>
@@ -563,17 +573,30 @@ export default function SurveyBuilder() {
             <div className="share-link-box">
               <div className="share-link-head">
                 <span className="share-link-label">응답자용 링크</span>
-                <span className="share-link-note">저장 후 접속할 수 있어요. 설문 ID를 바꾸면 링크도 바뀝니다.</span>
+                <span className="share-link-note">
+                  {survey.personalization?.enabled
+                    ? "맞춤형 설문은 조사대상 관리에서 기업·과제별 링크를 발급합니다."
+                    : "저장 후 접속할 수 있어요. 설문 ID를 바꾸면 링크도 바뀝니다."}
+                </span>
               </div>
-              <div className="share-link-row">
-                <input className="share-link-input" value={shareUrl} readOnly onFocus={(e) => e.target.select()} />
-                <button className="builder-btn secondary" type="button" onClick={copyShareUrl}>
-                  링크 복사
-                </button>
-                <a className="builder-btn primary" href={`/survey/${survey.id}`} target="_blank" rel="noreferrer">
-                  열어보기
-                </a>
-              </div>
+              {survey.personalization?.enabled ? (
+                <div className="share-link-row">
+                  <input className="share-link-input" value="기업·과제별 개별 링크 사용" readOnly />
+                  <a className="builder-btn primary" href={`/admin/targets?surveyId=${encodeURIComponent(survey.id)}`}>
+                    조사대상 관리
+                  </a>
+                </div>
+              ) : (
+                <div className="share-link-row">
+                  <input className="share-link-input" value={shareUrl} readOnly onFocus={(e) => e.target.select()} />
+                  <button className="builder-btn secondary" type="button" onClick={copyShareUrl}>
+                    링크 복사
+                  </button>
+                  <a className="builder-btn primary" href={`/survey/${survey.id}`} target="_blank" rel="noreferrer">
+                    열어보기
+                  </a>
+                </div>
+              )}
             </div>
 
             <div className="builder-grid">
@@ -627,6 +650,62 @@ export default function SurveyBuilder() {
                 />
                 무기명 설문 (식별정보 미수집)
               </label>
+              <label className="builder-check">
+                <input
+                  type="checkbox"
+                  checked={Boolean(survey.personalization?.enabled)}
+                  onChange={(event) => {
+                    const enabled = event.target.checked;
+                    setSurvey((prev) => ({
+                      ...prev,
+                      anonymous: enabled ? false : prev.anonymous,
+                      personalization: {
+                        enabled,
+                        companyVerification: prev.personalization?.companyVerification !== false,
+                        contractVerification: prev.personalization?.contractVerification !== false
+                      }
+                    }));
+                  }}
+                />
+                기업·과제별 맞춤형 설문 (개별 토큰 링크)
+              </label>
+              {survey.personalization?.enabled && (
+                <>
+                  <label className="builder-check">
+                    <input
+                      type="checkbox"
+                      checked={survey.personalization.companyVerification !== false}
+                      onChange={(event) => updateSurvey("personalization", {
+                        ...survey.personalization!,
+                        companyVerification: event.target.checked
+                      })}
+                    />
+                    1-1 기업정보 확인·정정 표시
+                  </label>
+                  <label className="builder-check">
+                    <input
+                      type="checkbox"
+                      checked={survey.personalization.contractVerification !== false}
+                      onChange={(event) => updateSurvey("personalization", {
+                        ...survey.personalization!,
+                        contractVerification: event.target.checked
+                      })}
+                    />
+                    1-3 기술실시계약 확인·정정 표시
+                  </label>
+                  <label>
+                    1-3 배치 기준 문항 ID
+                    <input
+                      placeholder="비우면 첫 문항(1-2) 뒤에 표시"
+                      value={survey.personalization.contractAfterQuestionId || ""}
+                      onChange={(event) => updateSurvey("personalization", {
+                        ...survey.personalization!,
+                        contractAfterQuestionId: event.target.value.trim() || undefined
+                      })}
+                    />
+                  </label>
+                </>
+              )}
               <label className="builder-check">
                 <input
                   type="checkbox"

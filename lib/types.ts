@@ -109,8 +109,55 @@ export type SurveyConfig = {
   allowEdit?: boolean;
   /** true면 보관(종료) 상태 — 더 이상 응답을 받지 않음. 보관함의 '보관됨'으로 분류 */
   archived?: boolean;
+  /** 기업·과제·계약별 발급 링크로 KEITI 보유정보를 맞춤 표시 */
+  personalization?: {
+    enabled: boolean;
+    /** 1-1 기업정보 확인·정정 표 표시. 기본 true */
+    companyVerification?: boolean;
+    /** 1-3 기술실시계약 정보 확인·정정 표 표시. 기본 true */
+    contractVerification?: boolean;
+    /** 1-3 표를 이 일반 문항 바로 뒤에 배치. 비우면 첫 일반 문항 뒤 */
+    contractAfterQuestionId?: string;
+  };
   sections: SurveySection[];
 };
+
+export type SurveyTargetCompany = {
+  name: string;
+  businessNumber: string;
+  representative: string;
+  region: string;
+  size: string;
+  industry: string;
+};
+
+export type SurveyTargetContract = {
+  projectName: string;
+  transferInstitution: string;
+  contractName: string;
+  signedAt: string;
+  amount: number | null;
+};
+
+/**
+ * 기업+과제(+계약) 단위 조사대상. targetId는 내부 식별값이고,
+ * 실제 응답 링크에는 식별정보 대신 무작위 토큰만 노출한다.
+ */
+export type SurveyTarget = {
+  targetId: string;
+  surveyId: string;
+  companyId: string;
+  projectId: string;
+  contractId: string;
+  company: SurveyTargetCompany;
+  contract: SurveyTargetContract;
+  active: boolean;
+  expiresAt?: string;
+  responseId?: string;
+};
+
+/** 응답에 보존하는 당시 표시정보. 접근 토큰과 토큰 해시는 포함하지 않는다. */
+export type SurveyTargetSnapshot = Omit<SurveyTarget, "active" | "expiresAt" | "responseId">;
 
 /** file 문항의 응답 1건 */
 export type UploadedFile = {

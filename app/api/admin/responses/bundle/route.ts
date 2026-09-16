@@ -65,7 +65,11 @@ export async function GET(request: Request) {
     const usedFolders = new Set<string>();
 
     for (const record of records) {
-      const parts = extractNameParts(config, record.answers);
+      const extracted = extractNameParts(config, record.answers);
+      const parts = {
+        ...extracted,
+        company: record.target?.company.name ? safeName(record.target.company.name, "기업명없음") : extracted.company
+      };
       const prefix = makePrefix(parts);
 
       // 단건이면 ZIP 루트에 바로, 전체면 기업별 폴더로
@@ -101,7 +105,12 @@ export async function GET(request: Request) {
     const zipBuffer = await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" });
 
     const baseName = single
-      ? makePrefix(extractNameParts(config, records[0].answers))
+      ? makePrefix({
+          ...extractNameParts(config, records[0].answers),
+          company: records[0].target?.company.name
+            ? safeName(records[0].target!.company.name, "기업명없음")
+            : extractNameParts(config, records[0].answers).company
+        })
       : `${safeName(config.title)}_전체제출`;
     const filename = `${baseName}.zip`;
 

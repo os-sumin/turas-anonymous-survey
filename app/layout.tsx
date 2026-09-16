@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "TURAS Anonymous Survey",
-  description: "TURAS-linked anonymous survey page"
+  title: "TURAS Survey",
+  description: "TURAS-linked survey page"
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

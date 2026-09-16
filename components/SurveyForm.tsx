@@ -1,11 +1,22 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { SurveyConfig, SurveyQuestion, UploadedFile } from "@/lib/types";
+import type { SurveyConfig, SurveyQuestion, SurveyTarget, UploadedFile } from "@/lib/types";
 import { isOtherValue, isQuestionVisible, otherLabelOf } from "@/lib/survey-utils";
+import {
+  COMPANY_CORRECTIONS_ID,
+  COMPANY_FIELDS,
+  CONTRACT_CORRECTION_ID,
+  CONTRACT_FIELDS,
+  CONTRACT_MATCH_ID,
+  CONTRACT_MATCH_OPTIONS,
+  hasCompanyVerification,
+  hasContractVerification,
+  validatePersonalizedAnswers
+} from "@/lib/personalization";
 
-type Props = { config: SurveyConfig; token?: string; editCode?: string };
+type Props = { config: SurveyConfig; token?: string; editCode?: string; target?: SurveyTarget };
 type MapValue = Record<string, string | string[]>;
 type GridValue = Record<string, Record<string, string>>;
 type AnswerValue = string | string[] | number | UploadedFile[] | MapValue | GridValue;
@@ -26,7 +37,7 @@ function isGridValue(value: AnswerValue | undefined): value is GridValue {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-export default function SurveyForm({ config, token, editCode }: Props) {
+export default function SurveyForm({ config, token, editCode, target }: Props) {
   const router = useRouter();
   const initialAnswers = useMemo(() => getInitialAnswers(config), [config]);
   const [answers, setAnswers] = useState<Answers>(initialAnswers);
@@ -52,7 +63,7 @@ export default function SurveyForm({ config, token, editCode }: Props) {
         const res = await fetch("/api/response/load", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ survey_id: config.id, edit_code: editCode })
+          body: JSON.stringify({ survey_id: config.id, edit_code: editCode, token })
         });
         const data = (await res.json()) as { ok?: boolean; answers?: Answers; message?: string };
         if (cancelled) return;
@@ -73,7 +84,7 @@ export default function SurveyForm({ config, token, editCode }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [editCode, config.id]);
+  }, [editCode, config.id, token]);
 
   const totalSteps = config.sections.length;
   const isLastStep = step >= totalSteps - 1;
@@ -90,6 +101,14 @@ export default function SurveyForm({ config, token, editCode }: Props) {
     if (uploadingCount > 0) {
       setError("파일 업로드가 끝난 뒤 넘어가 주세요.");
       return;
+    }
+    if (step === 0 && target) {
+      const personalized = validatePersonalizedAnswers(config, answers);
+      if (!personalized.ok) {
+        setError(personalized.message);
+        scrollToPersonalizedProblem(personalized.message);
+        return;
+      }
     }
     const problem = findSectionProblem(currentSection, answers);
     if (problem) {
@@ -187,6 +206,18 @@ export default function SurveyForm({ config, token, editCode }: Props) {
     }
 
     // 브라우저 기본 검증이 닿지 않는 문항(파일·복수선택·순위·행렬) 확인
+    if (target) {
+      const personalized = validatePersonalizedAnswers(config, answers);
+      if (!personalized.ok) {
+        setError(personalized.message);
+        setStep(0);
+        setTimeout(() => {
+          scrollToPersonalizedProblem(personalized.message);
+        }, 50);
+        return;
+      }
+    }
+
     const problem = findAnswerProblem(config, answers);
     if (problem) {
       setError(problem.message);
@@ -244,9 +275,12 @@ export default function SurveyForm({ config, token, editCode }: Props) {
 
   // 제출/수정 완료 화면
   if (done) {
+    const editQuery = new URLSearchParams();
+    if (token) editQuery.set("t", token);
+    if (issuedCode) editQuery.set("edit", issuedCode);
     const editLink =
       issuedCode && typeof window !== "undefined"
-        ? `${window.location.origin}/survey/${config.id}?edit=${issuedCode}`
+        ? `${window.location.origin}/survey/${config.id}?${editQuery.toString()}`
         : "";
     return (
       <div className="form-body">
@@ -302,6 +336,11 @@ export default function SurveyForm({ config, token, editCode }: Props) {
       {activeEditCode && (
         <div className="edit-mode-badge">✏️ 수정 모드 — 이전에 제출한 응답을 고치고 있어요. 다시 제출하면 덮어써집니다.</div>
       )}
+      {target?.responseId && !activeEditCode && (
+        <div className="edit-mode-badge">
+          이 링크로 이미 응답이 제출되었습니다.{config.allowEdit ? " 응답을 바꾸려면 수정 코드를 입력해 주세요." : ""}
+        </div>
+      )}
       {totalSteps > 1 && (
         <div className="survey-progress">
           <div className="survey-progress-top">
@@ -335,22 +374,63 @@ export default function SurveyForm({ config, token, editCode }: Props) {
       <section className="section" key={currentSection.id}>
         <h2 className="section-title">{currentSection.title}</h2>
         {currentSection.description && <p className="section-description">{currentSection.description}</p>}
-        {currentSection.questions.filter((question) => isQuestionVisible(question, answers)).map((question) => (
-          <QuestionField
-            key={question.id}
-            surveyId={config.id}
-            question={question}
-            value={answers[question.id]}
+        {step === 0 && target && hasCompanyVerification(config) && (
+          <TargetVerification
+            config={config}
+            target={target}
+            answers={answers}
             setAnswer={setAnswer}
-            toggleMultiple={toggleMultiple}
-            setRankValue={setRankValue}
-            setMatrixCell={setMatrixCell}
-            toggleMatrixCell={toggleMatrixCell}
-            setGridCell={setGridCell}
-            onUploadStart={() => setUploadingCount((n) => n + 1)}
-            onUploadEnd={() => setUploadingCount((n) => Math.max(0, n - 1))}
+            part="company"
           />
-        ))}
+        )}
+        {(() => {
+          const visibleQuestions = currentSection.questions.filter((question) => isQuestionVisible(question, answers));
+          const configuredAnchor = config.personalization?.contractAfterQuestionId;
+          const configuredAnchorIndex = configuredAnchor
+            ? visibleQuestions.findIndex((question) => question.id === configuredAnchor)
+            : -1;
+          const contractAnchorIndex = configuredAnchorIndex >= 0 ? configuredAnchorIndex : 0;
+          return (
+            <>
+              {visibleQuestions.map((question, index) => (
+                <Fragment key={question.id}>
+                  <QuestionField
+                    surveyId={config.id}
+                    token={token}
+                    question={question}
+                    value={answers[question.id]}
+                    setAnswer={setAnswer}
+                    toggleMultiple={toggleMultiple}
+                    setRankValue={setRankValue}
+                    setMatrixCell={setMatrixCell}
+                    toggleMatrixCell={toggleMatrixCell}
+                    setGridCell={setGridCell}
+                    onUploadStart={() => setUploadingCount((n) => n + 1)}
+                    onUploadEnd={() => setUploadingCount((n) => Math.max(0, n - 1))}
+                  />
+                  {step === 0 && target && index === contractAnchorIndex && hasContractVerification(config) && (
+                    <TargetVerification
+                      config={config}
+                      target={target}
+                      answers={answers}
+                      setAnswer={setAnswer}
+                      part="contract"
+                    />
+                  )}
+                </Fragment>
+              ))}
+              {step === 0 && target && visibleQuestions.length === 0 && hasContractVerification(config) && (
+                <TargetVerification
+                  config={config}
+                  target={target}
+                  answers={answers}
+                  setAnswer={setAnswer}
+                  part="contract"
+                />
+              )}
+            </>
+          );
+        })()}
       </section>
 
       <div className="actions step-actions">
@@ -364,8 +444,18 @@ export default function SurveyForm({ config, token, editCode }: Props) {
             {uploadingCount > 0 ? "파일 업로드 중..." : "다음"}
           </button>
         ) : (
-          <button className="submit-btn" type="submit" disabled={isSubmitting || uploadingCount > 0}>
-            {isSubmitting ? "제출 중..." : uploadingCount > 0 ? "파일 업로드 중..." : "제출하기"}
+          <button
+            className="submit-btn"
+            type="submit"
+            disabled={isSubmitting || uploadingCount > 0 || Boolean(target?.responseId && !activeEditCode)}
+          >
+            {target?.responseId && !activeEditCode
+              ? "이미 제출된 응답입니다"
+              : isSubmitting
+                ? "제출 중..."
+                : uploadingCount > 0
+                  ? "파일 업로드 중..."
+                  : "제출하기"}
           </button>
         )}
       </div>
@@ -391,7 +481,12 @@ export default function SurveyForm({ config, token, editCode }: Props) {
                   className="step-btn next"
                   onClick={() => {
                     const c = codeInput.trim();
-                    if (c) router.push(`/survey/${config.id}?edit=${encodeURIComponent(c)}`);
+                    if (c) {
+                      const query = new URLSearchParams();
+                      if (token) query.set("t", token);
+                      query.set("edit", c);
+                      router.push(`/survey/${config.id}?${query.toString()}`);
+                    }
                   }}
                 >
                   불러오기
@@ -405,8 +500,178 @@ export default function SurveyForm({ config, token, editCode }: Props) {
   );
 }
 
+function TargetVerification({
+  config,
+  target,
+  answers,
+  setAnswer,
+  part
+}: {
+  config: SurveyConfig;
+  target: SurveyTarget;
+  answers: Answers;
+  setAnswer: (questionId: string, value: AnswerValue) => void;
+  part: "company" | "contract";
+}) {
+  const corrections = isMapValue(answers[COMPANY_CORRECTIONS_ID])
+    ? answers[COMPANY_CORRECTIONS_ID] as MapValue
+    : {};
+  const matches = Array.isArray(answers[CONTRACT_MATCH_ID])
+    ? answers[CONTRACT_MATCH_ID] as string[]
+    : [];
+  const contractCorrection = String(answers[CONTRACT_CORRECTION_ID] ?? "");
+
+  function setCompanyCorrection(key: string, value: string) {
+    const next: MapValue = { ...corrections };
+    if (value.trim()) next[key] = value;
+    else delete next[key];
+    setAnswer(COMPANY_CORRECTIONS_ID, next);
+  }
+
+  function toggleContractMatch(option: string) {
+    if (option === "모두 일치" || option === "확인이 어려움") {
+      setAnswer(CONTRACT_MATCH_ID, matches.length === 1 && matches[0] === option ? [] : [option]);
+      return;
+    }
+
+    const base = matches.filter((value) => value !== "모두 일치" && value !== "확인이 어려움");
+    setAnswer(
+      CONTRACT_MATCH_ID,
+      base.includes(option) ? base.filter((value) => value !== option) : [...base, option]
+    );
+  }
+
+  return (
+    <div className="target-verification" id={`personalized-${part}-verification`}>
+      {part === "company" && (
+        <div className="target-context-badge">
+          <strong>{target.company.name || "기업명 미확인"}</strong>
+          <span>{target.contract.projectName || target.projectId}</span>
+        </div>
+      )}
+
+      {part === "company" && hasCompanyVerification(config) && (
+        <div className="verification-block">
+          <div className="question-title">1-1. 아래 기업정보가 귀사와 일치합니까? 다른 내용이 있으면 정정하여 작성해주십시오.</div>
+          <div className="verification-table-wrap">
+            <table className="verification-table">
+              <thead>
+                <tr>
+                  <th>항목</th>
+                  <th>KEITI 보유 정보</th>
+                  <th>정정 사항</th>
+                </tr>
+              </thead>
+              <tbody>
+                {COMPANY_FIELDS.map((field) => {
+                  const heldValue = target.company[field.key] || "보유정보 없음";
+                  const correctionValue = String(corrections[field.key] ?? "");
+                  return (
+                    <tr key={field.key}>
+                      <th scope="row">{field.label}</th>
+                      <td className="held-value">{heldValue}</td>
+                      <td>
+                        {field.key === "size" ? (
+                          <select
+                            className="verification-input"
+                            aria-label={`${field.label} 정정 사항`}
+                            value={correctionValue}
+                            onChange={(event) => setCompanyCorrection(field.key, event.target.value)}
+                          >
+                            <option value="">정정 없음</option>
+                            <option value="중소">중소</option>
+                            <option value="중견">중견</option>
+                            <option value="대기업">대기업</option>
+                          </select>
+                        ) : (
+                          <input
+                            className="verification-input"
+                            aria-label={`${field.label} 정정 사항`}
+                            placeholder="다른 경우에만 입력"
+                            value={correctionValue}
+                            onChange={(event) => setCompanyCorrection(field.key, event.target.value)}
+                          />
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <p className="verification-hint">보유정보와 동일한 항목은 정정 사항을 비워두시면 됩니다.</p>
+        </div>
+      )}
+
+      {part === "contract" && hasContractVerification(config) && (
+        <div className="verification-block">
+          <div className="question-title">1-3. 아래 기술실시계약 정보가 계약서와 일치합니까?</div>
+          <div className="verification-table-wrap">
+            <table className="verification-table contract-table">
+              <thead>
+                <tr>
+                  <th>항목</th>
+                  <th>KEITI 보유 정보</th>
+                </tr>
+              </thead>
+              <tbody>
+                {CONTRACT_FIELDS.map((field) => (
+                  <tr key={field.key}>
+                    <th scope="row">{field.label}</th>
+                    <td className="held-value">
+                      {field.key === "amount"
+                        ? formatContractAmount(target.contract.amount)
+                        : target.contract[field.key] || "보유정보 없음"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="contract-match-options" id={`q-${CONTRACT_MATCH_ID}`}>
+            {CONTRACT_MATCH_OPTIONS.map((option) => (
+              <label className="option" key={option}>
+                <input
+                  type="checkbox"
+                  checked={matches.includes(option)}
+                  onChange={() => toggleContractMatch(option)}
+                />
+                <span>{option}</span>
+              </label>
+            ))}
+          </div>
+
+          <label className="verification-correction-label">
+            정정 내용
+            <textarea
+              className="textarea"
+              placeholder="계약금액 또는 기타 항목이 다른 경우 정확한 내용을 입력해 주세요."
+              value={contractCorrection}
+              onChange={(event) => setAnswer(CONTRACT_CORRECTION_ID, event.target.value)}
+            />
+          </label>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function formatContractAmount(value: number | null): string {
+  if (value === null || !Number.isFinite(value)) return "보유정보 없음";
+  return `${value.toLocaleString("ko-KR")}원`;
+}
+
+function scrollToPersonalizedProblem(message: string) {
+  const id = message.startsWith("1-3") || message.startsWith("‘")
+    ? "personalized-contract-verification"
+    : "personalized-company-verification";
+  document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
 function QuestionField({
   surveyId,
+  token,
   question,
   value,
   setAnswer,
@@ -419,6 +684,7 @@ function QuestionField({
   onUploadEnd
 }: {
   surveyId: string;
+  token?: string;
   question: SurveyQuestion;
   value: AnswerValue;
   setAnswer: (questionId: string, value: AnswerValue) => void;
@@ -742,6 +1008,7 @@ function QuestionField({
       {question.type === "file" && (
         <FileField
           surveyId={surveyId}
+          token={token}
           question={question}
           files={Array.isArray(value) ? (value as UploadedFile[]) : []}
           setFiles={(files) => setAnswer(question.id, files)}
@@ -755,6 +1022,7 @@ function QuestionField({
 
 function FileField({
   surveyId,
+  token,
   question,
   files,
   setFiles,
@@ -762,6 +1030,7 @@ function FileField({
   onUploadEnd
 }: {
   surveyId: string;
+  token?: string;
   question: SurveyQuestion;
   files: UploadedFile[];
   setFiles: (files: UploadedFile[]) => void;
@@ -805,6 +1074,7 @@ function FileField({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             survey_id: surveyId,
+            token,
             question_id: question.id,
             filename: file.name,
             content_type: contentType,
@@ -897,6 +1167,11 @@ function formatSize(bytes: number) {
 
 function getInitialAnswers(config: SurveyConfig): Answers {
   const answers: Answers = {};
+  if (hasCompanyVerification(config)) answers[COMPANY_CORRECTIONS_ID] = {};
+  if (hasContractVerification(config)) {
+    answers[CONTRACT_MATCH_ID] = [];
+    answers[CONTRACT_CORRECTION_ID] = "";
+  }
   for (const section of config.sections) {
     for (const question of section.questions) {
       if (question.type === "multiple" || question.type === "file") answers[question.id] = [];

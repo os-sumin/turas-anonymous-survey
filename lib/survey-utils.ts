@@ -54,7 +54,8 @@ export function findQuestion(config: SurveyConfig, questionId: string): SurveyQu
 
 export function validateAnswers(
   config: SurveyConfig,
-  rawAnswers: Record<string, unknown>
+  rawAnswers: Record<string, unknown>,
+  context?: { targetId?: string }
 ): { ok: true; answers: Record<string, unknown> } | { ok: false; message: string } {
   const clean: Record<string, unknown> = {};
 
@@ -256,7 +257,7 @@ export function validateAnswers(
     }
 
     if (question.type === "file") {
-      const result = validateFileAnswer(config, question, value);
+      const result = validateFileAnswer(config, question, value, context?.targetId);
       if (!result.ok) return result;
       clean[question.id] = result.files;
     }
@@ -268,7 +269,8 @@ export function validateAnswers(
 function validateFileAnswer(
   config: SurveyConfig,
   question: SurveyQuestion,
-  value: unknown
+  value: unknown,
+  targetId?: string
 ): { ok: true; files: UploadedFile[] } | { ok: false; message: string } {
   if (!Array.isArray(value)) {
     return { ok: false, message: `"${question.title}" 첨부 형식이 올바르지 않습니다.` };
@@ -280,7 +282,9 @@ function validateFileAnswer(
   }
 
   const files: UploadedFile[] = [];
-  const expectedPrefix = `uploads/${config.id}/${question.id}/`;
+  const expectedPrefix = targetId
+    ? `uploads/${config.id}/${targetId}/${question.id}/`
+    : `uploads/${config.id}/${question.id}/`;
 
   for (const item of value) {
     const file = item as Partial<UploadedFile>;

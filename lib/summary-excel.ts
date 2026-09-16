@@ -1,11 +1,18 @@
 import ExcelJS from "exceljs";
 import { buildHeaders, formatAnswer, formatKST, isFileAnswer } from "./response-store";
-import type { SurveyConfig, UploadedFile } from "./types";
+import type { SurveyConfig, SurveyTargetSnapshot, UploadedFile } from "./types";
+import {
+  COMPANY_CORRECTIONS_ID,
+  COMPANY_FIELDS,
+  CONTRACT_CORRECTION_ID,
+  CONTRACT_MATCH_ID
+} from "./personalization";
 
 type ResponseLike = {
   responseId: string;
   submittedAt: string;
   answers: Record<string, unknown>;
+  target?: SurveyTargetSnapshot;
 };
 
 /**
@@ -34,7 +41,45 @@ export async function buildSummaryWorkbook(
   addMetaRow(sheet, "기관", config.agency);
   addMetaRow(sheet, "제출일시", formatKST(record.submittedAt));
   addMetaRow(sheet, "응답ID", record.responseId);
+  if (record.target) {
+    addMetaRow(sheet, "조사대상ID", record.target.targetId);
+    addMetaRow(sheet, "기업ID", record.target.companyId);
+    addMetaRow(sheet, "과제ID", record.target.projectId);
+    addMetaRow(sheet, "계약ID", record.target.contractId);
+  }
   sheet.addRow({});
+
+  if (record.target) {
+    const correctionSource = record.answers[COMPANY_CORRECTIONS_ID];
+    const corrections =
+      correctionSource && typeof correctionSource === "object" && !Array.isArray(correctionSource)
+        ? correctionSource as Record<string, unknown>
+        : {};
+    for (const field of COMPANY_FIELDS) {
+      sheet.addRow({
+        section: "1-1 기업정보",
+        question: field.label,
+        answer: `KEITI 보유: ${record.target.company[field.key] || ""}\n정정: ${String(corrections[field.key] ?? "")}`
+      }).alignment = { vertical: "top", wrapText: true };
+    }
+    sheet.addRow({
+      section: "1-3 계약정보",
+      question: "KEITI 보유 정보",
+      answer: [
+        `연구개발과제명: ${record.target.contract.projectName}`,
+        `기술이전기관: ${record.target.contract.transferInstitution}`,
+        `기술실시계약명: ${record.target.contract.contractName}`,
+        `계약 체결일: ${record.target.contract.signedAt}`,
+        `계약금액(기술료): ${record.target.contract.amount === null ? "" : record.target.contract.amount.toLocaleString("ko-KR") + "원"}`
+      ].join("\n")
+    }).alignment = { vertical: "top", wrapText: true };
+    sheet.addRow({
+      section: "1-3 계약정보",
+      question: "일치 여부 및 정정 내용",
+      answer: `${formatAnswer(record.answers[CONTRACT_MATCH_ID])}\n${formatAnswer(record.answers[CONTRACT_CORRECTION_ID])}`.trim()
+    }).alignment = { vertical: "top", wrapText: true };
+    sheet.addRow({});
+  }
 
   for (const section of config.sections) {
     for (const question of section.questions) {

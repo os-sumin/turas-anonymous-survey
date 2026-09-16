@@ -12,6 +12,12 @@ import {
   listResponses
 } from "@/lib/response-store";
 import type { UploadedFile } from "@/lib/types";
+import {
+  COMPANY_CORRECTIONS_ID,
+  COMPANY_FIELDS,
+  CONTRACT_CORRECTION_ID,
+  CONTRACT_MATCH_ID
+} from "@/lib/personalization";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -48,10 +54,38 @@ export async function GET(request: Request) {
       views: [{ state: "frozen", ySplit: 1 }]
     });
 
+    const personalizedColumns = config.personalization?.enabled
+      ? [
+          { header: "조사대상ID", key: "targetId", width: 34 },
+          { header: "기업ID", key: "companyId", width: 18 },
+          { header: "과제ID", key: "projectId", width: 20 },
+          { header: "계약ID", key: "contractId", width: 20 },
+          { header: "KEITI 보유 기업명", key: "heldCompanyName", width: 24 },
+          { header: "KEITI 보유 사업자등록번호", key: "heldBusinessNumber", width: 20 },
+          { header: "KEITI 보유 대표자명", key: "heldRepresentative", width: 16 },
+          { header: "KEITI 보유 소재지", key: "heldRegion", width: 18 },
+          { header: "KEITI 보유 기업규모", key: "heldSize", width: 16 },
+          { header: "KEITI 보유 주요업종", key: "heldIndustry", width: 24 },
+          ...COMPANY_FIELDS.map((field) => ({
+            header: `1-1 정정_${field.label.replace(/^\S+\s*/, "")}`,
+            key: `correction_${field.key}`,
+            width: 24
+          })),
+          { header: "KEITI 보유 연구개발과제명", key: "heldProjectName", width: 40 },
+          { header: "KEITI 보유 기술이전기관", key: "heldTransferInstitution", width: 28 },
+          { header: "KEITI 보유 기술실시계약명", key: "heldContractName", width: 34 },
+          { header: "KEITI 보유 계약체결일", key: "heldSignedAt", width: 18 },
+          { header: "KEITI 보유 계약금액(기술료)", key: "heldAmount", width: 22 },
+          { header: "1-3 일치 여부", key: "contractMatch", width: 28 },
+          { header: "1-3 정정 내용", key: "contractCorrection", width: 45 }
+        ]
+      : [];
+
     sheet.columns = [
       { header: "번호", key: "no", width: 6 },
       { header: "제출일시", key: "submittedAt", width: 20 },
       { header: "응답ID", key: "responseId", width: 38 },
+      ...personalizedColumns,
       ...headers.map((header) => ({
         header: header.title,
         key: header.id,
@@ -71,6 +105,35 @@ export async function GET(request: Request) {
         submittedAt: formatKST(record.submittedAt),
         responseId: record.responseId
       };
+
+      if (record.target) {
+        row.targetId = record.target.targetId;
+        row.companyId = record.target.companyId;
+        row.projectId = record.target.projectId;
+        row.contractId = record.target.contractId;
+        row.heldCompanyName = record.target.company.name;
+        row.heldBusinessNumber = record.target.company.businessNumber;
+        row.heldRepresentative = record.target.company.representative;
+        row.heldRegion = record.target.company.region;
+        row.heldSize = record.target.company.size;
+        row.heldIndustry = record.target.company.industry;
+        row.heldProjectName = record.target.contract.projectName;
+        row.heldTransferInstitution = record.target.contract.transferInstitution;
+        row.heldContractName = record.target.contract.contractName;
+        row.heldSignedAt = record.target.contract.signedAt;
+        row.heldAmount = record.target.contract.amount ?? "";
+      }
+
+      const companyCorrections = record.answers[COMPANY_CORRECTIONS_ID];
+      const correctionMap =
+        companyCorrections && typeof companyCorrections === "object" && !Array.isArray(companyCorrections)
+          ? companyCorrections as Record<string, unknown>
+          : {};
+      for (const field of COMPANY_FIELDS) {
+        row[`correction_${field.key}`] = String(correctionMap[field.key] ?? "");
+      }
+      row.contractMatch = formatAnswer(record.answers[CONTRACT_MATCH_ID]);
+      row.contractCorrection = formatAnswer(record.answers[CONTRACT_CORRECTION_ID]);
 
       for (const header of headers) {
         row[header.id] = formatAnswer(record.answers[header.id]);
@@ -96,7 +159,7 @@ export async function GET(request: Request) {
 
     sheet.autoFilter = {
       from: { row: 1, column: 1 },
-      to: { row: 1, column: 3 + headers.length }
+      to: { row: 1, column: 3 + personalizedColumns.length + headers.length }
     };
 
     const buffer = await workbook.xlsx.writeBuffer();

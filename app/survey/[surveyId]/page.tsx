@@ -2,6 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import SurveyForm from "@/components/SurveyForm";
 import { loadSurveyConfig } from "@/lib/survey-store";
 import { getEffectiveEndAt, isSurveyClosed } from "@/lib/survey-utils";
+import { isPersonalizedSurvey, resolveSurveyTarget } from "@/lib/target-store";
 
 // Firestore에서 설문을 읽으므로 매 요청마다 최신 상태를 반영
 export const dynamic = "force-dynamic";
@@ -19,13 +20,36 @@ export default async function SurveyPage({ params, searchParams }: Props) {
     redirect(`/closed?surveyId=${encodeURIComponent(config.id)}`);
   }
 
+  const resolvedTarget = isPersonalizedSurvey(config)
+    ? await resolveSurveyTarget(config.id, searchParams.t)
+    : null;
+
+  if (resolvedTarget && !resolvedTarget.ok) {
+    return (
+      <main className="page-shell">
+        <section className="survey-card target-access-error">
+          <div className="badge">{config.agency}</div>
+          <h1 className="title">조사 링크를 확인해 주세요</h1>
+          <p className="subtitle">{resolvedTarget.message}</p>
+          <p className="target-access-help">안내받으신 최신 설문 링크로 다시 접속해 주십시오.</p>
+        </section>
+      </main>
+    );
+  }
+
+  const target = resolvedTarget?.ok ? resolvedTarget.value.target : undefined;
+
   return (
     <main className="page-shell">
       <header className="header">
         <div>
           <div className="logo-text">TURAS Survey</div>
           <div className="logo-sub">
-            {config.anonymous === false ? "Survey response page" : "Anonymous response page"}
+            {config.personalization?.enabled
+              ? "기업·과제 맞춤형 응답 화면"
+              : config.anonymous === false
+                ? "기명 설문 응답 화면"
+                : "무기명 설문 응답 화면"}
           </div>
         </div>
         <div className="logo-sub">응답 마감: {formatDate(getEffectiveEndAt(config))}</div>
@@ -55,7 +79,7 @@ export default async function SurveyPage({ params, searchParams }: Props) {
           )}
         </div>
 
-        <SurveyForm config={config} token={searchParams.t} editCode={searchParams.edit} />
+        <SurveyForm config={config} token={searchParams.t} editCode={searchParams.edit} target={target} />
       </section>
 
       <div className="footer-note">Powered by TURAS Survey</div>

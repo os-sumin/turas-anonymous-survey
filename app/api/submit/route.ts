@@ -5,7 +5,14 @@ import { getBucket, getDb, isFirebaseConfigured, isStorageConfigured } from "@/l
 import { loadSurveyConfig } from "@/lib/survey-store";
 import { generateEditCode, hashEditCode, hashToken, isSurveyClosed, shouldIncludeTokenHash, validateAnswers } from "@/lib/survey-utils";
 import { getClientIp, hit } from "@/lib/rate-limit";
-import type { UploadedFile } from "@/lib/types";
+import { validatePersonalizedAnswers } from "@/lib/personalization";
+import {
+  isPersonalizedSurvey,
+  resolveSurveyTarget,
+  TARGET_COLLECTION,
+  toTargetSnapshot
+} from "@/lib/target-store";
+import type { SurveyTarget, UploadedFile } from "@/lib/types";
 
 // firebase-admin은 Edge 런타임에서 동작하지 않음
 export const runtime = "nodejs";
@@ -42,11 +49,27 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false, message: "답변 종료된 설문입니다." }, { status: 410 });
     }
 
-    const validation = validateAnswers(config, body.answers || {});
+    let personalizedTarget: SurveyTarget | null = null;
+    let personalizedTokenHash: string | null = null;
+    if (isPersonalizedSurvey(config)) {
+      const resolved = await resolveSurveyTarget(config.id, body.token);
+      if (!resolved.ok) {
+        return NextResponse.json({ ok: false, message: resolved.message }, { status: resolved.status });
+      }
+      personalizedTarget = resolved.value.target;
+      personalizedTokenHash = resolved.value.tokenHash;
+    }
+
+    const rawAnswers = body.answers || {};
+    const validation = validateAnswers(config, rawAnswers, { targetId: personalizedTarget?.targetId });
     if (!validation.ok) return badRequest(validation.message);
 
+    const personalizedValidation = validatePersonalizedAnswers(config, rawAnswers);
+    if (!personalizedValidation.ok) return badRequest(personalizedValidation.message);
+    const cleanAnswers = { ...personalizedValidation.answers, ...validation.answers };
+
     // 첨부가 실제로 Storage에 존재하는지 확인 (경로 위조 방지)
-    const missing = await findMissingFiles(validation.answers);
+    const missing = await findMissingFiles(cleanAnswers);
     if (missing.length > 0) {
       return badRequest(`첨부파일 업로드가 완료되지 않았습니다: ${missing.join(", ")}`);
     }
@@ -56,7 +79,12 @@ export async function POST(request: Request) {
       if (!config.allowEdit) return badRequest("이 설문은 응답 수정을 지원하지 않습니다.");
       const codeHash = hashEditCode(body.edit_code);
       if (!codeHash) return badRequest("수정 코드가 올바르지 않습니다.");
-      const updated = await updateResponseByEditCode(config.id, codeHash, validation.answers);
+      const updated = await updateResponseByEditCode(
+        config.id,
+        codeHash,
+        cleanAnswers,
+        personalizedTarget || undefined
+      );
       if (!updated) return badRequest("일치하는 응답을 찾을 수 없습니다. 수정 코드를 확인해 주세요.");
       return NextResponse.json({ ok: true, response_id: updated, edited: true });
     }
@@ -68,9 +96,12 @@ export async function POST(request: Request) {
     // 이중 제출 방지: 같은 IP·같은 내용이 60초 내 다시 오면 새 응답을 만들지 않고 첫 응답을 반환
     const ip = getClientIp(request);
     const contentHash = createHash("sha256")
-      .update(`${config.id}|${ip}|${stableStringify(validation.answers)}`)
+      .update(`${config.id}|${personalizedTarget?.targetId || ip}|${stableStringify(cleanAnswers)}`)
       .digest("hex");
-    const dup = await claimSubmission(config.id, contentHash, responseId);
+    // 맞춤형 설문은 아래 Firestore 트랜잭션에서 target_id 기준으로 정확히 1회만 허용한다.
+    const dup = personalizedTarget
+      ? { duplicate: false as const }
+      : await claimSubmission(config.id, contentHash, responseId);
     if (dup.duplicate) {
       return NextResponse.json({ ok: true, response_id: dup.responseId || responseId, duplicate: true, edit_code: null });
     }
@@ -79,12 +110,17 @@ export async function POST(request: Request) {
       survey_id: config.id,
       response_id: responseId,
       submitted_at: submittedAt,
-      answers: validation.answers,
+      answers: cleanAnswers,
       meta: { source: "vercel-survey", version: "1.1.0" }
     };
 
-    let tokenHash: string | null = null;
-    if (shouldIncludeTokenHash() && body.token) {
+    if (personalizedTarget) {
+      payload.target_id = personalizedTarget.targetId;
+      payload.target_snapshot = toTargetSnapshot(personalizedTarget);
+    }
+
+    let tokenHash: string | null = personalizedTokenHash;
+    if (!tokenHash && shouldIncludeTokenHash() && body.token) {
       tokenHash = hashToken(body.token);
       if (tokenHash) payload.token_hash = tokenHash;
     }
@@ -98,12 +134,15 @@ export async function POST(request: Request) {
       else editCode = null; // TOKEN_HASH_SECRET 미설정 시 발급 불가
     }
 
-    await saveToFirestore(payload, tokenHash);
+    await saveToFirestore(payload, tokenHash, personalizedTarget?.targetId);
 
     return NextResponse.json({ ok: true, response_id: responseId, edit_code: editCode });
   } catch (error) {
     if (error instanceof Error && error.name === "DuplicateSubmissionError") {
       return NextResponse.json({ ok: false, message: "이미 제출된 응답입니다." }, { status: 409 });
+    }
+    if (error instanceof Error && error.name === "InvalidTargetError") {
+      return NextResponse.json({ ok: false, message: error.message }, { status: 403 });
     }
     console.error(error);
     return NextResponse.json({ ok: false, message: "서버 처리 중 오류가 발생했습니다." }, { status: 500 });
@@ -184,7 +223,11 @@ async function findMissingFiles(answers: Record<string, unknown>): Promise<strin
  *   surveys/{survey_id}                           ← response_count 집계
  *   surveys/{survey_id}/tokens/{token_hash}       ← 중복제출 방지 (선택)
  */
-async function saveToFirestore(payload: Record<string, unknown>, tokenHash: string | null) {
+async function saveToFirestore(
+  payload: Record<string, unknown>,
+  tokenHash: string | null,
+  targetId?: string
+) {
   if (!isFirebaseConfigured()) {
     console.log("[survey-submit:dry-run]", JSON.stringify(payload, null, 2));
     return;
@@ -198,7 +241,30 @@ async function saveToFirestore(payload: Record<string, unknown>, tokenHash: stri
   const responseRef = surveyRef.collection("responses").doc(responseId);
 
   await db.runTransaction(async (tx) => {
-    if (tokenHash) {
+    if (targetId) {
+      if (!tokenHash) throw new InvalidTargetError();
+      const targetRef = db.collection(TARGET_COLLECTION).doc(targetId);
+      const targetSnap = await tx.get(targetRef);
+      const targetData = targetSnap.data();
+      const targetExpiresAt = typeof targetData?.expires_at === "string" ? new Date(targetData.expires_at) : null;
+      const targetExpired = Boolean(
+        targetExpiresAt && !Number.isNaN(targetExpiresAt.getTime()) && Date.now() > targetExpiresAt.getTime()
+      );
+      if (
+        !targetSnap.exists ||
+        targetData?.survey_id !== surveyId ||
+        targetData?.token_hash !== tokenHash ||
+        targetData?.active === false ||
+        targetExpired
+      ) {
+        throw new InvalidTargetError();
+      }
+      if (targetData?.response_id) throw new DuplicateSubmissionError();
+      tx.update(targetRef, {
+        response_id: responseId,
+        responded_at: FieldValue.serverTimestamp()
+      });
+    } else if (tokenHash) {
       const tokenRef = surveyRef.collection("tokens").doc(tokenHash);
       const existing = await tx.get(tokenRef);
       if (existing.exists) throw new DuplicateSubmissionError();
@@ -226,7 +292,8 @@ async function saveToFirestore(payload: Record<string, unknown>, tokenHash: stri
 async function updateResponseByEditCode(
   surveyId: string,
   codeHash: string,
-  answers: Record<string, unknown>
+  answers: Record<string, unknown>,
+  target?: SurveyTarget
 ): Promise<string | null> {
   if (!isFirebaseConfigured()) {
     console.log("[survey-edit:dry-run]", surveyId, codeHash.slice(0, 8), JSON.stringify(answers).slice(0, 200));
@@ -239,11 +306,14 @@ async function updateResponseByEditCode(
   if (snap.empty) return null;
 
   const doc = snap.docs[0];
-  await doc.ref.update({
+  if (target && doc.data().target_id !== target.targetId) return null;
+  const update: Record<string, unknown> = {
     answers,
     updated_at: FieldValue.serverTimestamp(),
     edit_count: FieldValue.increment(1)
-  });
+  };
+  if (target) update.target_snapshot = toTargetSnapshot(target);
+  await doc.ref.update(update);
   return doc.id;
 }
 
@@ -251,5 +321,12 @@ class DuplicateSubmissionError extends Error {
   constructor() {
     super("이미 제출된 응답입니다.");
     this.name = "DuplicateSubmissionError";
+  }
+}
+
+class InvalidTargetError extends Error {
+  constructor() {
+    super("유효하지 않은 조사대상 링크입니다.");
+    this.name = "InvalidTargetError";
   }
 }

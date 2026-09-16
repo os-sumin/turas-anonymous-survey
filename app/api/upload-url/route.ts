@@ -10,6 +10,7 @@ import {
   sanitizeFilename
 } from "@/lib/survey-utils";
 import { getClientIp, hit } from "@/lib/rate-limit";
+import { isPersonalizedSurvey, resolveSurveyTarget } from "@/lib/target-store";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -41,6 +42,7 @@ export async function POST(request: Request) {
 
     const body = (await request.json()) as {
       survey_id?: string;
+      token?: string;
       question_id?: string;
       filename?: string;
       content_type?: string;
@@ -61,6 +63,15 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false, message: "답변 종료된 설문입니다." }, { status: 410 });
     }
 
+    let targetId = "shared";
+    if (isPersonalizedSurvey(config)) {
+      const resolved = await resolveSurveyTarget(surveyId, body.token);
+      if (!resolved.ok) {
+        return NextResponse.json({ ok: false, message: resolved.message }, { status: resolved.status });
+      }
+      targetId = resolved.value.target.targetId;
+    }
+
     const question = findQuestion(config, questionId);
     if (!question || question.type !== "file") {
       return bad("파일 첨부 문항이 아닙니다.");
@@ -76,7 +87,9 @@ export async function POST(request: Request) {
     }
 
     const safeName = sanitizeFilename(filename);
-    const path = `uploads/${config.id}/${question.id}/${crypto.randomUUID()}_${safeName}`;
+    const path = isPersonalizedSurvey(config)
+      ? `uploads/${config.id}/${targetId}/${question.id}/${crypto.randomUUID()}_${safeName}`
+      : `uploads/${config.id}/${question.id}/${crypto.randomUUID()}_${safeName}`;
 
     const [uploadUrl] = await getBucket()
       .file(path)

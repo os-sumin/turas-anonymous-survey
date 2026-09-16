@@ -1,11 +1,12 @@
 import { getBucket, getDb, isStorageConfigured } from "./firebase-admin";
 import { flattenQuestions } from "./survey-utils";
-import type { SurveyConfig, UploadedFile } from "./types";
+import type { SurveyConfig, SurveyTargetSnapshot, UploadedFile } from "./types";
 
 export type ResponseRecord = {
   responseId: string;
   submittedAt: string;
   answers: Record<string, unknown>;
+  target?: SurveyTargetSnapshot;
 };
 
 export async function getResponseCount(surveyId: string): Promise<number> {
@@ -27,11 +28,13 @@ export async function listResponses(surveyId: string, limit = 500): Promise<Resp
       response_id?: string;
       submitted_at?: string;
       answers?: Record<string, unknown>;
+      target_snapshot?: SurveyTargetSnapshot;
     };
     return {
       responseId: data.response_id || doc.id,
       submittedAt: data.submitted_at || "",
-      answers: data.answers || {}
+      answers: data.answers || {},
+      target: data.target_snapshot
     };
   });
 }

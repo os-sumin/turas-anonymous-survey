@@ -1088,3 +1088,43 @@ body {
   background: #eff6ff;
   border-color: #2563eb;
 }
+
+/* 기업·과제별 맞춤정보 확인(1-1, 1-3) */
+.target-verification { display: grid; gap: 26px; margin: 18px 0 28px; }
+.target-context-badge {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 12px 15px; border: 1px solid #bfdbfe; border-radius: 14px; background: #eff6ff;
+}
+.target-context-badge strong { color: #1e3a8a; }
+.target-context-badge span { color: #475569; font-size: 14px; }
+.target-context-badge span::before { content: "·"; margin-right: 10px; color: #93a4b8; }
+.verification-block { border-top: 1px solid var(--line); padding-top: 24px; }
+.verification-table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 14px; }
+.verification-table { width: 100%; min-width: 680px; border-collapse: collapse; }
+.verification-table th, .verification-table td { border-bottom: 1px solid var(--line); padding: 12px 13px; vertical-align: middle; }
+.verification-table tr:last-child th, .verification-table tr:last-child td { border-bottom: 0; }
+.verification-table thead th { text-align: center; background: #f1f5f9; font-size: 14px; }
+.verification-table tbody th { width: 26%; text-align: left; background: #f8fafc; font-size: 14px; }
+.verification-table .held-value { width: 37%; color: #1e293b; line-height: 1.5; word-break: break-word; }
+.verification-input { width: 100%; min-height: 40px; border: 1px solid var(--line); border-radius: 10px; padding: 9px 11px; font: inherit; color: var(--text); background: #fff; }
+.verification-input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(63,27,199,.08); }
+.verification-hint { margin: 9px 2px 0; color: var(--muted); font-size: 13px; }
+.contract-table tbody th { width: 36%; }
+.contract-table .held-value { width: 64%; }
+.contract-match-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 16px; }
+.verification-correction-label { display: grid; gap: 8px; margin-top: 16px; font-size: 14px; font-weight: 700; }
+.target-access-error { margin-top: 80px; padding: 40px; text-align: center; }
+.target-access-help { margin: 20px 0 0; color: var(--muted); }
+
+/* 맞춤형 설문 조사대상 관리자 */
+.target-manager-shell { width: min(980px, calc(100% - 32px)); margin: 28px auto 70px; display: grid; gap: 20px; }
+.target-manager-note, .target-manager-warning { color: var(--muted); line-height: 1.65; }
+.target-manager-warning { margin: 18px 0 0; font-size: 13px; }
+.target-import-button { margin-top: 18px; }
+.target-manager-message { margin-top: 18px; }
+
+@media (max-width: 720px) {
+  .contract-match-options { grid-template-columns: 1fr; }
+  .target-context-badge { align-items: flex-start; flex-direction: column; }
+  .target-context-badge span::before { content: none; }
+}

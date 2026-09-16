@@ -129,6 +129,9 @@ export function validateSurveyConfig(value: unknown): { ok: true; config: Survey
     return { ok: false, message: "설문 ID는 영문·숫자·한글·_·- 만 사용할 수 있습니다." };
   }
   if (!config.title?.trim()) return { ok: false, message: "설문 제목을 입력해 주세요." };
+  if (config.personalization?.enabled && config.anonymous) {
+    return { ok: false, message: "맞춤형 설문은 무기명 설문으로 설정할 수 없습니다." };
+  }
   if (!Array.isArray(config.sections) || config.sections.length === 0) {
     return { ok: false, message: "섹션이 최소 1개 필요합니다." };
   }

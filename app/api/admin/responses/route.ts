@@ -63,13 +63,33 @@ export async function GET(request: Request) {
           }
         }
 
-        return { responseId: record.responseId, submittedAt: record.submittedAt, cells };
+        return {
+          responseId: record.responseId,
+          submittedAt: record.submittedAt,
+          target: record.target
+            ? {
+                targetId: record.target.targetId,
+                companyId: record.target.companyId,
+                projectId: record.target.projectId,
+                contractId: record.target.contractId,
+                companyName: record.target.company.name,
+                projectName: record.target.contract.projectName
+              }
+            : null,
+          cells
+        };
       })
     );
 
     return NextResponse.json({
       ok: true,
-      survey: { id: config.id, title: config.title, agency: config.agency, endAt: config.endAt },
+      survey: {
+        id: config.id,
+        title: config.title,
+        agency: config.agency,
+        endAt: config.endAt,
+        personalized: Boolean(config.personalization?.enabled)
+      },
       count,
       headers,
       rows,

@@ -3,6 +3,7 @@ import { getDb, isFirebaseConfigured } from "@/lib/firebase-admin";
 import { loadSurveyConfig } from "@/lib/survey-store";
 import { hashEditCode, isSurveyClosed } from "@/lib/survey-utils";
 import { getClientIp, hit } from "@/lib/rate-limit";
+import { isPersonalizedSurvey, resolveSurveyTarget } from "@/lib/target-store";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,7 +26,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const body = (await request.json()) as { survey_id?: string; edit_code?: string };
+    const body = (await request.json()) as { survey_id?: string; edit_code?: string; token?: string };
     const surveyId = body.survey_id;
     const editCode = body.edit_code;
     if (!surveyId || !editCode) {
@@ -39,6 +40,13 @@ export async function POST(request: Request) {
     }
     if (isSurveyClosed(config)) {
       return NextResponse.json({ ok: false, message: "답변이 종료된 설문입니다." }, { status: 410 });
+    }
+
+    const resolvedTarget = isPersonalizedSurvey(config)
+      ? await resolveSurveyTarget(surveyId, body.token)
+      : null;
+    if (resolvedTarget && !resolvedTarget.ok) {
+      return NextResponse.json({ ok: false, message: resolvedTarget.message }, { status: resolvedTarget.status });
     }
 
     const codeHash = hashEditCode(editCode);
@@ -63,6 +71,9 @@ export async function POST(request: Request) {
     }
 
     const data = snap.docs[0].data() as { answers?: Record<string, unknown>; submitted_at?: string };
+    if (resolvedTarget?.ok && snap.docs[0].data().target_id !== resolvedTarget.value.target.targetId) {
+      return NextResponse.json({ ok: false, message: "조사대상과 응답 정보가 일치하지 않습니다." }, { status: 403 });
+    }
     return NextResponse.json({ ok: true, answers: data.answers || {}, submitted_at: data.submitted_at || null });
   } catch (error) {
     console.error(error);

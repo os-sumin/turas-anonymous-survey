@@ -17,11 +17,19 @@ type Header = { id: string; title: string; type: string };
 type Row = {
   responseId: string;
   submittedAt: string;
+  target?: {
+    targetId: string;
+    companyId: string;
+    projectId: string;
+    contractId: string;
+    companyName: string;
+    projectName: string;
+  } | null;
   cells: Record<string, { text: string; files?: { name: string; url: string | null }[] }>;
 };
 
 type ResponseData = {
-  survey: { id: string; title: string; agency: string; endAt?: string };
+  survey: { id: string; title: string; agency: string; endAt?: string; personalized?: boolean };
   count: number;
   headers: Header[];
   rows: Row[];
@@ -185,6 +193,7 @@ export default function ResponseDashboard() {
         </div>
         <div className="builder-actions">
           <a className="builder-btn secondary" href="/admin/builder">설문 편집</a>
+          <a className="builder-btn secondary" href={`/admin/targets?surveyId=${encodeURIComponent(selectedId)}`}>조사대상 관리</a>
           <button className="builder-btn secondary" onClick={() => loadResponses(selectedId)} disabled={loading}>
             새로고침
           </button>
@@ -254,6 +263,9 @@ export default function ResponseDashboard() {
                     <th className="col-no">#</th>
                     <th className="col-zip">받기</th>
                     <th className="col-date">제출일시</th>
+                    {data.survey.personalized && <th>기업명</th>}
+                    {data.survey.personalized && <th>과제ID</th>}
+                    {data.survey.personalized && <th>계약ID</th>}
                     {data.headers.map((header) => (
                       <th key={header.id} title={header.title}>{header.title}</th>
                     ))}
@@ -269,6 +281,9 @@ export default function ResponseDashboard() {
                         </button>
                       </td>
                       <td className="col-date">{formatKST(row.submittedAt)}</td>
+                      {data.survey.personalized && <td>{row.target?.companyName || ""}</td>}
+                      {data.survey.personalized && <td>{row.target?.projectId || ""}</td>}
+                      {data.survey.personalized && <td>{row.target?.contractId || ""}</td>}
                       {data.headers.map((header) => {
                         const cell = row.cells[header.id];
                         return (
