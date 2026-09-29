@@ -29,6 +29,12 @@ export interface GridColumn {
   placeholder?: string;
 }
 
+/** 앞의 객관식 문항 응답에 따라 문항 또는 섹션을 표시하는 조건 */
+export type ShowIfCondition = {
+  questionId: string;
+  values: string[];
+};
+
 export type SurveyQuestion = {
   id: string;
   type: QuestionType;
@@ -43,7 +49,7 @@ export type SurveyQuestion = {
   /** 기타 항목 라벨 (기본 "기타") */
   otherLabel?: string;
   /** 조건부 표시: 기준 문항이 특정 값일 때만 이 문항을 보여줌(분기). 아니면 숨김+미수집 */
-  showIf?: { questionId: string; values: string[] };
+  showIf?: ShowIfCondition;
   placeholder?: string;
   min?: number;
   max?: number;
@@ -89,6 +95,8 @@ export type SurveySection = {
   id: string;
   title: string;
   description?: string;
+  /** 조건부 표시: 앞 섹션의 객관식 응답이 특정 값일 때만 이 섹션을 표시 */
+  showIf?: ShowIfCondition;
   questions: SurveyQuestion[];
 };
 

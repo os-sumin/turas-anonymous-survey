@@ -9,7 +9,7 @@ import type {
   SurveyTarget,
   UploadedFile
 } from "@/lib/types";
-import { isOtherValue, isQuestionVisible, otherLabelOf } from "@/lib/survey-utils";
+import { getVisibleQuestionIds, getVisibleSections, isOtherValue, otherLabelOf } from "@/lib/survey-utils";
 import {
   COMPANY_CORRECTIONS_ID,
   CONTRACT_CORRECTION_ID,
@@ -94,9 +94,21 @@ export default function SurveyForm({ config, token, editCode, target }: Props) {
     };
   }, [editCode, config.id, token]);
 
-  const totalSteps = config.sections.length;
+  const activeSections = useMemo(
+    () => getVisibleSections(config, answers),
+    [config, answers]
+  );
+  const visibleQuestionIds = useMemo(
+    () => getVisibleQuestionIds(config, answers),
+    [config, answers]
+  );
+  const totalSteps = activeSections.length;
   const isLastStep = step >= totalSteps - 1;
-  const currentSection = config.sections[step];
+  const currentSection = activeSections[step];
+
+  useEffect(() => {
+    setStep((current) => Math.min(current, Math.max(activeSections.length - 1, 0)));
+  }, [activeSections.length]);
 
   function goToStep(index: number) {
     setError("");
@@ -119,7 +131,7 @@ export default function SurveyForm({ config, token, editCode, target }: Props) {
         return;
       }
     }
-    const problem = findSectionProblem(currentSection, answers);
+    const problem = findSectionProblem(currentSection, answers, visibleQuestionIds);
     if (problem) {
       setError(problem.message);
       document.getElementById(`q-${problem.questionId}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -216,10 +228,13 @@ export default function SurveyForm({ config, token, editCode, target }: Props) {
 
     // 브라우저 기본 검증이 닿지 않는 문항(파일·복수선택·순위·행렬) 확인
     if (target) {
-      const personalized = validatePersonalizedAnswers(config, answers);
+      const activeSources = activeSections.flatMap((section) =>
+        blocksForSection(config, section.id).map((block) => block.source)
+      );
+      const personalized = validatePersonalizedAnswers(config, answers, activeSources);
       if (!personalized.ok) {
         setError(personalized.message);
-        const problemSectionIndex = config.sections.findIndex((section) =>
+        const problemSectionIndex = activeSections.findIndex((section) =>
           blocksForSection(config, section.id).some((block) => block.source === personalized.source)
         );
         setStep(problemSectionIndex >= 0 ? problemSectionIndex : 0);
@@ -230,7 +245,7 @@ export default function SurveyForm({ config, token, editCode, target }: Props) {
       }
     }
 
-    const problem = findAnswerProblem(config, answers);
+    const problem = findAnswerProblem(activeSections, answers, visibleQuestionIds);
     if (problem) {
       setError(problem.message);
       if (problem.sectionIndex !== step) {
@@ -343,8 +358,15 @@ export default function SurveyForm({ config, token, editCode, target }: Props) {
     );
   }
 
-  const visibleQuestions = currentSection.questions.filter((question) => isQuestionVisible(question, answers));
-  const visibleQuestionIds = new Set(visibleQuestions.map((question) => question.id));
+  if (!currentSection) {
+    return (
+      <div className="form-body">
+        <div className="error">현재 응답 조건에 표시할 설문 섹션이 없습니다. 관리자에게 문의해 주세요.</div>
+      </div>
+    );
+  }
+
+  const visibleQuestions = currentSection.questions.filter((question) => visibleQuestionIds.has(question.id));
   const sectionBlocks = target ? blocksForSection(config, currentSection.id) : [];
   const beforeBlocks = sectionBlocks.filter((block) => block.position === "before_first");
   const trailingBlocks = sectionBlocks.filter((block) =>
@@ -386,7 +408,7 @@ export default function SurveyForm({ config, token, editCode, target }: Props) {
             <span className="survey-progress-fill" style={{ width: `${((step + 1) / totalSteps) * 100}%` }} />
           </div>
           <div className="survey-progress-dots">
-            {config.sections.map((section, index) => (
+            {activeSections.map((section, index) => (
               <button
                 type="button"
                 key={section.id}
@@ -1263,9 +1285,13 @@ function checkQuestion(question: SurveyQuestion, value: AnswerValue | undefined)
 }
 
 /** 한 섹션 안에서 첫 번째 문제를 찾음 (숨겨진 문항은 건너뜀) */
-function findSectionProblem(section: SurveyConfig["sections"][number], answers: Answers): { questionId: string; message: string } | null {
+function findSectionProblem(
+  section: SurveyConfig["sections"][number],
+  answers: Answers,
+  visibleQuestionIds: Set<string>
+): { questionId: string; message: string } | null {
   for (const question of section.questions) {
-    if (!isQuestionVisible(question, answers)) continue;
+    if (!visibleQuestionIds.has(question.id)) continue;
     const message = checkQuestion(question, answers[question.id]);
     if (message) return { questionId: question.id, message };
   }
@@ -1273,9 +1299,13 @@ function findSectionProblem(section: SurveyConfig["sections"][number], answers: 
 }
 
 /** 제출 전 클라이언트 검증: 전체에서 첫 번째 문제를 반환 (섹션 인덱스 포함) */
-function findAnswerProblem(config: SurveyConfig, answers: Answers): { questionId: string; message: string; sectionIndex: number } | null {
-  for (let i = 0; i < config.sections.length; i += 1) {
-    const problem = findSectionProblem(config.sections[i], answers);
+function findAnswerProblem(
+  sections: SurveyConfig["sections"],
+  answers: Answers,
+  visibleQuestionIds: Set<string>
+): { questionId: string; message: string; sectionIndex: number } | null {
+  for (let i = 0; i < sections.length; i += 1) {
+    const problem = findSectionProblem(sections[i], answers, visibleQuestionIds);
     if (problem) return { ...problem, sectionIndex: i };
   }
   return null;

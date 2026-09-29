@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import type { SurveyConfig, SurveyQuestion, UploadedFile } from "./types";
+import type { ShowIfCondition, SurveyConfig, SurveyQuestion, SurveySection, UploadedFile } from "./types";
 
 export const DEFAULT_MAX_SIZE_MB = 20;
 export const HARD_MAX_SIZE_MB = 100;
@@ -31,13 +31,8 @@ export function isOtherValue(value: string, label: string): boolean {
   return value === label || value.startsWith(`${label}: `);
 }
 
-/**
- * 조건부 표시 평가: showIf가 없으면 항상 표시.
- * 기준 문항 답이 지정 값 중 하나면 표시(복수선택은 하나라도 포함).
- * "기타: 내용" 형태도 기타 값과 매칭.
- */
-export function isQuestionVisible(question: SurveyQuestion, answers: Record<string, unknown>): boolean {
-  const cond = question.showIf;
+/** 조건이 없으면 항상 표시. 복수선택과 "기타: 내용" 값도 함께 처리한다. */
+export function isConditionMet(cond: ShowIfCondition | undefined, answers: Record<string, unknown>): boolean {
   if (!cond || !cond.questionId || !cond.values || cond.values.length === 0) return true;
   const raw = answers[cond.questionId];
   const matches = (v: unknown) => {
@@ -46,6 +41,49 @@ export function isQuestionVisible(question: SurveyQuestion, answers: Record<stri
   };
   if (Array.isArray(raw)) return raw.some(matches);
   return matches(raw);
+}
+
+export function isQuestionVisible(question: SurveyQuestion, answers: Record<string, unknown>): boolean {
+  return isConditionMet(question.showIf, answers);
+}
+
+export function isSectionVisible(section: SurveySection, answers: Record<string, unknown>): boolean {
+  return isConditionMet(section.showIf, answers);
+}
+
+/**
+ * 섹션을 앞에서부터 평가한다. 앞에서 숨겨진 섹션·문항의 예전 응답은
+ * 뒤 섹션의 조건을 만족시키는 데 사용하지 않아 중첩 분기도 안전하게 처리한다.
+ */
+function evaluateVisibility(config: SurveyConfig, answers: Record<string, unknown>): {
+  sections: SurveySection[];
+  questionIds: Set<string>;
+} {
+  const effectiveAnswers = { ...answers };
+  const sections: SurveySection[] = [];
+  const questionIds = new Set<string>();
+
+  for (const section of config.sections) {
+    if (!isSectionVisible(section, effectiveAnswers)) {
+      for (const question of section.questions) delete effectiveAnswers[question.id];
+      continue;
+    }
+    sections.push(section);
+    for (const question of section.questions) {
+      if (isQuestionVisible(question, effectiveAnswers)) questionIds.add(question.id);
+      else delete effectiveAnswers[question.id];
+    }
+  }
+
+  return { sections, questionIds };
+}
+
+export function getVisibleSections(config: SurveyConfig, answers: Record<string, unknown>): SurveySection[] {
+  return evaluateVisibility(config, answers).sections;
+}
+
+export function getVisibleQuestionIds(config: SurveyConfig, answers: Record<string, unknown>): Set<string> {
+  return evaluateVisibility(config, answers).questionIds;
 }
 
 export function findQuestion(config: SurveyConfig, questionId: string): SurveyQuestion | null {
@@ -58,12 +96,13 @@ export function validateAnswers(
   context?: { targetId?: string }
 ): { ok: true; answers: Record<string, unknown> } | { ok: false; message: string } {
   const clean: Record<string, unknown> = {};
+  const visibleQuestionIds = getVisibleQuestionIds(config, rawAnswers);
 
   for (const question of flattenQuestions(config)) {
     const value = rawAnswers[question.id];
 
-    // 조건부 표시(showIf)로 숨겨진 문항은 필수 검사·수집에서 제외
-    if (!isQuestionVisible(question, rawAnswers)) {
+    // 조건부 표시로 숨겨진 섹션·문항은 필수 검사와 응답 수집에서 제외한다.
+    if (!visibleQuestionIds.has(question.id)) {
       if (question.type === "multiple" || question.type === "file") clean[question.id] = [];
       else if (question.type === "ranking" || question.type === "matrix" || question.type === "grid") clean[question.id] = {};
       else clean[question.id] = "";

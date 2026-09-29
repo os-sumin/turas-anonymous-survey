@@ -1,7 +1,7 @@
 import { FieldValue } from "firebase-admin/firestore";
 import { getDb, isFirebaseConfigured } from "./firebase-admin";
 import { surveys as builtinSurveys } from "./survey.config";
-import type { SurveyConfig } from "./types";
+import type { SurveyConfig, SurveyQuestion } from "./types";
 import { getPersonalizationBlocks, visibleBlockFields } from "./personalization";
 
 const CONFIG_COLLECTION = "survey_configs";
@@ -138,10 +138,26 @@ export function validateSurveyConfig(value: unknown): { ok: true; config: Survey
   }
 
   const questionIds = new Set<string>();
+  const priorQuestions = new Map<string, SurveyQuestion>();
   for (const section of config.sections) {
     if (!Array.isArray(section.questions)) {
       return { ok: false, message: `섹션 "${section.id}"의 문항 형식이 올바르지 않습니다.` };
     }
+
+    if (section.showIf) {
+      const base = priorQuestions.get(section.showIf.questionId);
+      if (!base || (base.type !== "single" && base.type !== "multiple")) {
+        return { ok: false, message: `섹션 "${section.title}"의 조건 기준은 앞 섹션의 객관식 문항이어야 합니다.` };
+      }
+      if (!Array.isArray(section.showIf.values) || section.showIf.values.length === 0) {
+        return { ok: false, message: `섹션 "${section.title}"을 표시할 답변을 하나 이상 선택해 주세요.` };
+      }
+      const allowed = new Set([...(base.options || []), ...(base.allowOther ? [base.otherLabel?.trim() || "기타"] : [])]);
+      if (section.showIf.values.some((value) => !allowed.has(value))) {
+        return { ok: false, message: `섹션 "${section.title}"의 조건 답변을 다시 선택해 주세요.` };
+      }
+    }
+
     for (const question of section.questions) {
       if (!question.id) return { ok: false, message: "문항 ID가 비어 있습니다." };
       if (questionIds.has(question.id)) {
@@ -151,6 +167,20 @@ export function validateSurveyConfig(value: unknown): { ok: true; config: Survey
       if (!question.title?.trim()) {
         return { ok: false, message: `문항 "${question.id}"의 제목을 입력해 주세요.` };
       }
+      if (question.showIf) {
+        const base = priorQuestions.get(question.showIf.questionId);
+        if (!base || (base.type !== "single" && base.type !== "multiple")) {
+          return { ok: false, message: `문항 "${question.title}"의 조건 기준은 앞의 객관식 문항이어야 합니다.` };
+        }
+        if (!Array.isArray(question.showIf.values) || question.showIf.values.length === 0) {
+          return { ok: false, message: `문항 "${question.title}"을 표시할 답변을 하나 이상 선택해 주세요.` };
+        }
+        const allowed = new Set([...(base.options || []), ...(base.allowOther ? [base.otherLabel?.trim() || "기타"] : [])]);
+        if (question.showIf.values.some((value) => !allowed.has(value))) {
+          return { ok: false, message: `문항 "${question.title}"의 조건 답변을 다시 선택해 주세요.` };
+        }
+      }
+      priorQuestions.set(question.id, question);
     }
   }
 

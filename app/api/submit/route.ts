@@ -3,9 +3,9 @@ import { createHash } from "crypto";
 import { FieldValue } from "firebase-admin/firestore";
 import { getBucket, getDb, isFirebaseConfigured, isStorageConfigured } from "@/lib/firebase-admin";
 import { loadSurveyConfig } from "@/lib/survey-store";
-import { generateEditCode, hashEditCode, hashToken, isSurveyClosed, shouldIncludeTokenHash, validateAnswers } from "@/lib/survey-utils";
+import { generateEditCode, getVisibleSections, hashEditCode, hashToken, isSurveyClosed, shouldIncludeTokenHash, validateAnswers } from "@/lib/survey-utils";
 import { getClientIp, hit } from "@/lib/rate-limit";
-import { validatePersonalizedAnswers } from "@/lib/personalization";
+import { blocksForSection, validatePersonalizedAnswers } from "@/lib/personalization";
 import {
   isPersonalizedSurvey,
   resolveSurveyTarget,
@@ -64,7 +64,9 @@ export async function POST(request: Request) {
     const validation = validateAnswers(config, rawAnswers, { targetId: personalizedTarget?.targetId });
     if (!validation.ok) return badRequest(validation.message);
 
-    const personalizedValidation = validatePersonalizedAnswers(config, rawAnswers);
+    const activePersonalizationSources = getVisibleSections(config, rawAnswers)
+      .flatMap((section) => blocksForSection(config, section.id).map((block) => block.source));
+    const personalizedValidation = validatePersonalizedAnswers(config, rawAnswers, activePersonalizationSources);
     if (!personalizedValidation.ok) return badRequest(personalizedValidation.message);
     const cleanAnswers = { ...personalizedValidation.answers, ...validation.answers };
 

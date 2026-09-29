@@ -91,6 +91,8 @@ export default function SurveyBuilder() {
 
   const selectedSection =
     survey.sections.find((section) => section.id === selectedSectionId) || survey.sections[0];
+  const priorSectionChoices = priorChoiceQuestionsForSection(survey, selectedSection.id);
+  const sectionCondBase = priorSectionChoices.find((question) => question.id === selectedSection.showIf?.questionId);
 
   const shareUrl = origin ? `${origin}/survey/${survey.id}` : `/survey/${survey.id}`;
 
@@ -562,7 +564,7 @@ export default function SurveyBuilder() {
               className={section.id === selectedSectionId ? "builder-side-active" : ""}
               onClick={() => setSelectedSectionId(section.id)}
             >
-              {section.title || section.id}
+              {section.showIf ? "[조건부] " : ""}{section.title || section.id}
             </button>
           ))}
           <button className="builder-side-add" onClick={addSection}>+ 섹션 추가</button>
@@ -736,6 +738,90 @@ export default function SurveyBuilder() {
                   onChange={(event) => updateSection(selectedSection.id, { description: event.target.value })}
                 />
               </label>
+              <div className="builder-col-span cond-editor">
+                <label className="builder-check">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(selectedSection.showIf)}
+                    disabled={priorSectionChoices.length === 0}
+                    onChange={(event) =>
+                      updateSection(selectedSection.id, {
+                        showIf: event.target.checked
+                          ? { questionId: priorSectionChoices[0]?.id || "", values: [] }
+                          : undefined
+                      })
+                    }
+                  />
+                  조건부 표시 — 앞 섹션의 특정 답일 때만 이 섹션을 보여주기
+                </label>
+                {priorSectionChoices.length === 0 && (
+                  <p className="question-desc">앞 섹션에 객관식(단일·복수선택) 문항이 있어야 조건을 걸 수 있어요.</p>
+                )}
+                {selectedSection.showIf && (
+                  <div className="cond-body">
+                    <label className="cond-field">
+                      기준 문항
+                      <select
+                        value={selectedSection.showIf.questionId}
+                        onChange={(event) =>
+                          updateSection(selectedSection.id, {
+                            showIf: { questionId: event.target.value, values: [] }
+                          })
+                        }
+                      >
+                        {priorSectionChoices.map((question) => (
+                          <option key={question.id} value={question.id}>
+                            {question.id} — {question.title.slice(0, 30)}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <div className="cond-values">
+                      <span className="cond-values-label">이 답일 때 섹션 표시:</span>
+                      {(sectionCondBase?.options || []).map((option) => {
+                        const checked = selectedSection.showIf?.values.includes(option) || false;
+                        return (
+                          <label className="cond-value" key={option}>
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={(event) => {
+                                const current = selectedSection.showIf?.values || [];
+                                const next = event.target.checked
+                                  ? [...current, option]
+                                  : current.filter((value) => value !== option);
+                                updateSection(selectedSection.id, {
+                                  showIf: { questionId: selectedSection.showIf!.questionId, values: next }
+                                });
+                              }}
+                            />
+                            {option}
+                          </label>
+                        );
+                      })}
+                      {sectionCondBase?.allowOther && (
+                        <label className="cond-value">
+                          <input
+                            type="checkbox"
+                            checked={selectedSection.showIf.values.includes(otherLabelOf(sectionCondBase))}
+                            onChange={(event) => {
+                              const label = otherLabelOf(sectionCondBase);
+                              const current = selectedSection.showIf?.values || [];
+                              const next = event.target.checked
+                                ? [...current, label]
+                                : current.filter((value) => value !== label);
+                              updateSection(selectedSection.id, {
+                                showIf: { questionId: selectedSection.showIf!.questionId, values: next }
+                              });
+                            }}
+                          />
+                          {otherLabelOf(sectionCondBase)}
+                        </label>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="question-toolbar">
@@ -779,7 +865,12 @@ export default function SurveyBuilder() {
             )}
             {survey.sections.map((section) => (
               <div className="preview-section" key={section.id}>
-                <strong>{section.title}</strong>
+                <strong>{section.title}{section.showIf ? " · 조건부" : ""}</strong>
+                {section.showIf && (
+                  <div className="question-desc">
+                    {section.showIf.questionId} = {section.showIf.values.join(", ") || "응답 미선택"}
+                  </div>
+                )}
                 {section.questions.map((question) => (
                   <div className="preview-question" key={question.id}>
                     {question.type === "file" && <span className="preview-file-tag">첨부</span>}
@@ -1354,6 +1445,17 @@ function priorChoiceQuestions(survey: SurveyConfig, targetId: string): SurveyQue
   const idx = flat.findIndex((q) => q.id === targetId);
   const scope = idx < 0 ? flat : flat.slice(0, idx);
   return scope.filter((q) => (q.type === "single" || q.type === "multiple") && (q.options?.length || 0) > 0);
+}
+
+/** 섹션 조건은 순환 분기를 막기 위해 해당 섹션보다 앞선 섹션의 문항만 기준으로 삼는다. */
+function priorChoiceQuestionsForSection(survey: SurveyConfig, sectionId: string): SurveyQuestion[] {
+  const sectionIndex = survey.sections.findIndex((section) => section.id === sectionId);
+  const earlierSections = sectionIndex < 0 ? [] : survey.sections.slice(0, sectionIndex);
+  return earlierSections
+    .flatMap((section) => section.questions)
+    .filter((question) =>
+      (question.type === "single" || question.type === "multiple") && (question.options?.length || 0) > 0
+    );
 }
 
 /** 새 열에 부여할 고정 id 생성 */
