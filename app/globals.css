@@ -194,37 +194,48 @@ body {
 .image-hint { color: var(--muted); font-size: 12px; margin: 8px 0 0; }
 .preview-image { width: 100%; height: auto; border-radius: 10px; border: 1px solid var(--line); }
 
-/* 응답 수정 코드 UI */
-.done-box { text-align: center; padding: 20px 0; }
-.done-title { font-size: 22px; letter-spacing: -0.03em; margin: 6px 0 18px; }
-.loading-existing { text-align: center; color: var(--muted); padding: 40px 0; }
-.edit-mode-badge {
+/* 제출 완료된 맞춤형 링크 안내 */
+.submitted-notice {
   background: #fff7e6; border: 1px solid #ffe0a3; color: #8a5a00;
   border-radius: 12px; padding: 11px 14px; margin-bottom: 18px; font-size: 14px; line-height: 1.5;
 }
-.edit-code-box {
-  background: #f4f8fd; border: 1px solid var(--line); border-radius: 16px;
-  padding: 20px; margin: 0 auto 18px; max-width: 460px; text-align: center;
-}
-.edit-code-label { font-weight: 700; margin: 0 0 12px; }
-.edit-code-value {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 22px; font-weight: 800;
-  letter-spacing: 2px; color: var(--primary); background: #fff;
-  border: 1px dashed var(--primary); border-radius: 12px; padding: 14px; word-break: break-all;
-}
-.edit-code-actions { display: flex; gap: 8px; justify-content: center; margin: 14px 0 10px; flex-wrap: wrap; }
-.edit-code-warn { font-size: 12.5px; color: var(--danger); line-height: 1.6; margin: 0; }
 
-.edit-entry { margin-top: 18px; padding-top: 16px; border-top: 1px dashed var(--line); text-align: center; }
-.edit-entry-toggle { background: none; border: 0; color: var(--primary); font-weight: 700; cursor: pointer; text-decoration: underline; font-size: 14px; }
-.edit-entry-form { text-align: left; }
-.edit-entry-label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
-.edit-entry-row { display: flex; gap: 8px; }
-.edit-entry-input { flex: 1; min-width: 0; border: 1px solid var(--line); border-radius: 12px; padding: 11px 13px; font: inherit; background: #fff; }
-.edit-entry-input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(63,27,199,.08); outline: none; }
+/* 설문 마지막 응답자 다운로드 자료 */
+.respondent-download {
+  display: flex; align-items: center; justify-content: space-between; gap: 18px;
+  margin: 22px 0 0; padding: 18px; border: 1px solid #c8d8ef; border-radius: 16px;
+  background: #f4f8fd;
+}
+.respondent-download strong { display: block; color: var(--primary); margin-bottom: 5px; }
+.respondent-download p { margin: 0; color: var(--muted); font-size: 13px; }
+.respondent-download-button {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 3px; min-width: 220px;
+  padding: 12px 16px; border-radius: 12px; background: var(--primary); color: #fff;
+  text-decoration: none; font-weight: 800;
+}
+.respondent-download-button:hover { background: var(--primary-dark); }
+.respondent-download-button span { max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.respondent-download-button small { font-weight: 500; opacity: .8; }
+
+/* 빌더의 응답자 다운로드 파일 편집기 */
+.respondent-download-editor { margin-top: 7px; }
+.respondent-download-file {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 12px; margin-bottom: 10px; border: 1px solid var(--line); border-radius: 12px; background: #fbfdff;
+}
+.respondent-download-file strong { display: block; word-break: break-all; }
+.respondent-download-file span { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; }
+.respondent-download-upload { cursor: pointer; display: inline-flex; }
+.preview-download {
+  display: flex; flex-direction: column; gap: 4px; margin-top: 16px; padding: 12px;
+  border: 1px solid #c8d8ef; border-radius: 10px; background: #f4f8fd; color: var(--primary);
+}
+.preview-download span { color: var(--muted); font-size: 13px; word-break: break-all; }
 
 @media (max-width: 640px) {
   .rank-row { grid-template-columns: 60px 1fr; }
+  .respondent-download { align-items: stretch; flex-direction: column; }
+  .respondent-download-button { min-width: 0; }
 }
 
 .actions { display: flex; align-items: center; justify-content: flex-end; gap: 12px; border-top: 1px solid var(--line); padding-top: 24px; }

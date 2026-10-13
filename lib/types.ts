@@ -16,6 +16,14 @@ export interface SurveyImage {
   caption?: string;
 }
 
+/** 설문 마지막에 응답자에게 제공하는 다운로드 자료 1건 */
+export type SurveyDownloadFile = {
+  path: string;
+  name: string;
+  size: number;
+  type?: string;
+};
+
 /** 입력형 표(grid)의 열 정의. 열마다 입력 방식을 다르게 지정 */
 export interface GridColumn {
   /** 편집 중 안정적인 식별을 위한 내부 id(있으면 사용). 응답 저장에는 영향 없음 */
@@ -137,8 +145,8 @@ export type SurveyConfig = {
   endAt?: string;
   /** true면 무기명 설문(식별정보 미수집). 기본 false */
   anonymous?: boolean;
-  /** true면 제출 후 '수정 코드'를 발급해, 응답자가 코드로 자기 응답을 다시 수정할 수 있게 함 */
-  allowEdit?: boolean;
+  /** 마지막 응답 단계 하단에 표시할 응답자용 다운로드 자료 */
+  respondentDownload?: SurveyDownloadFile;
   /** true면 보관(종료) 상태 — 더 이상 응답을 받지 않음. 보관함의 '보관됨'으로 분류 */
   archived?: boolean;
   /** 기업·과제·계약별 발급 링크로 KEITI 보유정보를 맞춤 표시 */

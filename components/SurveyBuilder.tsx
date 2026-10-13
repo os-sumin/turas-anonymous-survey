@@ -1,7 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { GridColumn, QuestionType, SurveyConfig, SurveyImage, SurveyQuestion, SurveySection } from "@/lib/types";
+import type {
+  GridColumn,
+  QuestionType,
+  SurveyConfig,
+  SurveyDownloadFile,
+  SurveyImage,
+  SurveyQuestion,
+  SurveySection
+} from "@/lib/types";
 import { makeDefaultPersonalizationBlocks } from "@/lib/personalization";
 import { otherLabelOf } from "@/lib/survey-utils";
 import PersonalizationBlockEditor from "@/components/PersonalizationBlockEditor";
@@ -638,6 +646,16 @@ export default function SurveyBuilder() {
                   onChange={(next) => updateSurvey("images", next.length > 0 ? next : undefined)}
                 />
               </div>
+              <div className="builder-col-span">
+                응답자 다운로드 자료 (선택 · 1개)
+                <RespondentDownloadEditor
+                  surveyId={survey.id}
+                  password={password}
+                  file={survey.respondentDownload}
+                  onChange={(next) => updateSurvey("respondentDownload", next)}
+                  onNotify={showToast}
+                />
+              </div>
               <label>
                 응답 마감일시
                 <input
@@ -674,14 +692,6 @@ export default function SurveyBuilder() {
                   }}
                 />
                 기업·과제별 맞춤형 설문 (개별 토큰 링크)
-              </label>
-              <label className="builder-check">
-                <input
-                  type="checkbox"
-                  checked={Boolean(survey.allowEdit)}
-                  onChange={(event) => updateSurvey("allowEdit", event.target.checked)}
-                />
-                응답 수정 허용 (제출 후 수정 코드 발급)
               </label>
               <label className="builder-check">
                 <input
@@ -880,6 +890,12 @@ export default function SurveyBuilder() {
                 ))}
               </div>
             ))}
+            {survey.respondentDownload && (
+              <div className="preview-download">
+                <strong>마지막 단계 다운로드 자료</strong>
+                <span>{survey.respondentDownload.name}</span>
+              </div>
+            )}
           </div>
         </aside>
       </div>
@@ -1689,4 +1705,116 @@ function ImageManager({
       <p className="image-hint">업로드한 이미지는 긴 변 1600px로 자동 축소됩니다. 큰 공문은 URL 링크를 권장합니다.</p>
     </div>
   );
+}
+
+const RESPONDENT_DOWNLOAD_MAX_BYTES = 50 * 1024 * 1024;
+
+/** 설문 마지막에 노출할 자료 1개를 Firebase Storage에 업로드한다. */
+function RespondentDownloadEditor({
+  surveyId,
+  password,
+  file,
+  onChange,
+  onNotify
+}: {
+  surveyId: string;
+  password: string;
+  file?: SurveyDownloadFile;
+  onChange: (next: SurveyDownloadFile | undefined) => void;
+  onNotify: (message: string) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+
+  async function upload(selected: File | undefined) {
+    if (!selected) return;
+    if (!surveyId.trim()) {
+      onNotify("설문 ID를 먼저 입력해 주세요.");
+      return;
+    }
+    if (selected.size <= 0 || selected.size > RESPONDENT_DOWNLOAD_MAX_BYTES) {
+      onNotify("다운로드 자료는 50MB 이하 파일만 등록할 수 있습니다.");
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const ticketResponse = await fetch("/api/admin/download-file", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-admin-password": password },
+        body: JSON.stringify({
+          survey_id: surveyId,
+          filename: selected.name,
+          content_type: selected.type || "application/octet-stream",
+          size: selected.size
+        })
+      });
+      const ticket = (await ticketResponse.json()) as {
+        ok?: boolean;
+        message?: string;
+        upload_url?: string;
+        path?: string;
+        content_type?: string;
+      };
+      if (!ticketResponse.ok || !ticket.ok || !ticket.upload_url || !ticket.path) {
+        throw new Error(ticket.message || "파일 업로드를 준비하지 못했습니다.");
+      }
+
+      const uploadResponse = await fetch(ticket.upload_url, {
+        method: "PUT",
+        headers: { "Content-Type": ticket.content_type || selected.type || "application/octet-stream" },
+        body: selected
+      });
+      if (!uploadResponse.ok) throw new Error("파일 업로드에 실패했습니다.");
+
+      onChange({
+        path: ticket.path,
+        name: selected.name,
+        size: selected.size,
+        type: selected.type || "application/octet-stream"
+      });
+      onNotify("응답자 다운로드 자료를 등록했습니다. 설문 저장을 눌러 반영해 주세요.");
+    } catch (error) {
+      onNotify(error instanceof Error ? error.message : "파일 업로드에 실패했습니다.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="respondent-download-editor">
+      {file ? (
+        <div className="respondent-download-file">
+          <div>
+            <strong>{file.name}</strong>
+            <span>{formatBuilderFileSize(file.size)}</span>
+          </div>
+          <button type="button" className="builder-btn danger small" onClick={() => onChange(undefined)} disabled={busy}>
+            제거
+          </button>
+        </div>
+      ) : (
+        <p className="image-hint">등록하면 실제 응답 화면의 마지막 단계 하단에 다운로드 버튼이 표시됩니다.</p>
+      )}
+      <label className="builder-btn secondary small respondent-download-upload">
+        {busy ? "업로드 중…" : file ? "파일 교체" : "파일 업로드"}
+        <input
+          type="file"
+          accept=".pdf,.hwp,.hwpx,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip"
+          style={{ display: "none" }}
+          disabled={busy}
+          onChange={(event) => {
+            void upload(event.target.files?.[0]);
+            event.target.value = "";
+          }}
+        />
+      </label>
+      <p className="image-hint">PDF·한글·Word·Excel·PowerPoint·ZIP, 최대 50MB</p>
+    </div>
+  );
+}
+
+function formatBuilderFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)}KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
 }

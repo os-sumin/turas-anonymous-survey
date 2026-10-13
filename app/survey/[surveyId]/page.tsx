@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 
 type Props = {
   params: { surveyId: string };
-  searchParams: { t?: string; edit?: string };
+  searchParams: { t?: string };
 };
 
 export default async function SurveyPage({ params, searchParams }: Props) {
@@ -79,7 +79,7 @@ export default async function SurveyPage({ params, searchParams }: Props) {
           )}
         </div>
 
-        <SurveyForm config={config} token={searchParams.t} editCode={searchParams.edit} target={target} />
+        <SurveyForm config={config} token={searchParams.t} target={target} />
       </section>
 
       <div className="footer-note">Powered by TURAS Survey</div>

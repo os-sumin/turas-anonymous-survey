@@ -130,6 +130,30 @@ export function validateSurveyConfig(value: unknown): { ok: true; config: Survey
     return { ok: false, message: "설문 ID는 영문·숫자·한글·_·- 만 사용할 수 있습니다." };
   }
   if (!config.title?.trim()) return { ok: false, message: "설문 제목을 입력해 주세요." };
+
+  // 구버전 설문에 남아 있는 수정 코드 설정은 저장 시 제거한다.
+  delete (config as SurveyConfig & { allowEdit?: unknown }).allowEdit;
+
+  if (config.respondentDownload) {
+    const file = config.respondentDownload;
+    const expectedPrefix = `survey-downloads/${config.id}/`;
+    if (!file.path || !file.path.startsWith(expectedPrefix) || file.path.includes("..")) {
+      return { ok: false, message: "응답자 다운로드 자료의 저장 경로가 올바르지 않습니다." };
+    }
+    if (!file.name?.trim()) {
+      return { ok: false, message: "응답자 다운로드 자료의 파일명이 없습니다." };
+    }
+    if (!Number.isFinite(file.size) || file.size <= 0 || file.size > 50 * 1024 * 1024) {
+      return { ok: false, message: "응답자 다운로드 자료는 50MB 이하 파일만 등록할 수 있습니다." };
+    }
+    config.respondentDownload = {
+      path: file.path,
+      name: file.name.trim().slice(0, 300),
+      size: file.size,
+      type: file.type?.trim().slice(0, 200) || "application/octet-stream"
+    };
+  }
+
   if (config.personalization?.enabled && config.anonymous) {
     return { ok: false, message: "맞춤형 설문은 무기명 설문으로 설정할 수 없습니다." };
   }
