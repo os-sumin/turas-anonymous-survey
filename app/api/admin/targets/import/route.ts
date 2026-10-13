@@ -1,4 +1,5 @@
 import ExcelJS from "exceljs";
+import crypto from "crypto";
 import { NextResponse } from "next/server";
 import { guardAdmin } from "@/lib/admin-auth";
 import { isFirebaseConfigured } from "@/lib/firebase-admin";
@@ -35,38 +36,63 @@ export async function POST(request: Request) {
     const baseUrl = validBaseUrl(baseUrlInput) || new URL(request.url).origin;
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.load(await file.arrayBuffer() as ExcelJS.Buffer);
-    const sheet = workbook.worksheets[0];
-    if (!sheet) return jsonError("엑셀에 시트가 없습니다.", 400);
-
-    const headerMap = readHeaderMap(sheet);
-    const requiredHeaders = new Set<HeaderName>(["기업ID", "과제ID"]);
-    for (const block of getPersonalizationBlocks(config)) {
-      for (const field of visibleBlockFields(block)) requiredHeaders.add(field.header as HeaderName);
+    const detected = findTargetTable(workbook);
+    if (!detected) {
+      return jsonError("조사대상 표를 찾지 못했습니다. 계약ID·과제번호·기술실시기업 열을 확인해 주세요.", 400);
     }
+    const { sheet, headerMap, headerRowNumber, targetStatusColumn } = detected;
+
+    const requiredHeaders = new Set<HeaderName>(["과제ID", "계약ID", "기업명"]);
     const missing = [...requiredHeaders].filter((header) => !headerMap.has(header));
     if (missing.length > 0) return jsonError(`필수 열이 없습니다: ${missing.join(", ")}`, 400);
+
+    const displayedHeaders = new Set<HeaderName>();
+    for (const block of getPersonalizationBlocks(config)) {
+      for (const field of visibleBlockFields(block)) displayedHeaders.add(field.header as HeaderName);
+    }
 
     const inputs: SurveyTargetInput[] = [];
     const sourceRows: Record<HeaderName, string | number | null>[] = [];
     const warningFlags: boolean[] = [];
-    for (let rowNumber = 2; rowNumber <= sheet.rowCount; rowNumber += 1) {
+    let skippedCount = 0;
+    for (let rowNumber = headerRowNumber + 1; rowNumber <= sheet.rowCount; rowNumber += 1) {
       const row = sheet.getRow(rowNumber);
-      const companyId = readText(row, headerMap, "기업ID");
       const projectId = readText(row, headerMap, "과제ID");
+      const contractId = readText(row, headerMap, "계약ID");
       const companyName = readText(row, headerMap, "기업명");
-      if (!companyId && !projectId && !companyName) continue;
-      if (!companyId || !projectId) return jsonError(`${rowNumber}행의 기업ID 또는 과제ID가 비어 있습니다.`, 400);
+      if (!projectId && !contractId && !companyName) continue;
+
+      const targetStatus = targetStatusColumn ? cellText(row.getCell(targetStatusColumn).value) : "";
+      if (targetStatusColumn && targetStatus && targetStatus !== "조사대상") {
+        skippedCount += 1;
+        continue;
+      }
+
+      if (!projectId || !contractId || !companyName) {
+        return jsonError(`${sheet.name} 시트 ${rowNumber}행의 계약ID·과제번호·기술실시기업 값을 확인해 주세요.`, 400);
+      }
+
+      const companyId = readText(row, headerMap, "기업ID") || stableId("COMP", companyName);
+      const contractName = readText(row, headerMap, "기술실시계약명");
 
       const amount = readAmount(row, headerMap, "계약금액(기술료)");
       const source = Object.fromEntries(
         TARGET_TEMPLATE_HEADERS.map((header) => [header, header === "계약금액(기술료)" ? amount : readText(row, headerMap, header)])
       ) as Record<HeaderName, string | number | null>;
-      const missingValues = [...requiredHeaders].filter((header) => !readText(row, headerMap, header));
+      source["기업ID"] = companyId;
+      source["과제ID"] = projectId;
+      source["계약ID"] = contractId;
+      source["기업명"] = companyName;
+      source["연구개발과제명"] = readText(row, headerMap, "연구개발과제명") || contractName;
+      const missingValues = [...displayedHeaders].filter((header) => {
+        const value = source[header];
+        return value === null || value === undefined || String(value).trim() === "";
+      });
 
       inputs.push({
         companyId,
         projectId,
-        contractId: readText(row, headerMap, "계약ID"),
+        contractId,
         company: {
           name: companyName,
           businessNumber: readText(row, headerMap, "사업자등록번호"),
@@ -76,10 +102,12 @@ export async function POST(request: Request) {
           industry: readText(row, headerMap, "주요업종")
         },
         contract: {
-          projectName: readText(row, headerMap, "연구개발과제명"),
+          projectName: String(source["연구개발과제명"] || ""),
           transferInstitution: readText(row, headerMap, "기술이전기관(연구기관)"),
-          contractName: readText(row, headerMap, "기술실시계약명"),
+          contractName,
           signedAt: readText(row, headerMap, "계약체결일"),
+          periodStart: readText(row, headerMap, "실시 시작일"),
+          periodEnd: readText(row, headerMap, "실시 종료일"),
           amount
         },
         expiresAt: readText(row, headerMap, "링크만료일시") || undefined
@@ -94,19 +122,21 @@ export async function POST(request: Request) {
     const output = new ExcelJS.Workbook();
     output.creator = "TURAS Survey";
     const outSheet = output.addWorksheet("개별설문링크", { views: [{ state: "frozen", ySplit: 1 }] });
-    outSheet.addRow([...TARGET_TEMPLATE_HEADERS, "조사대상ID", "설문링크", "처리결과"]);
+    outSheet.addRow([...TARGET_TEMPLATE_HEADERS, "기업 안내 코드(계약ID)", "조사대상ID", "설문링크", "처리결과"]);
     issued.forEach((item, index) => {
       outSheet.addRow([
         ...TARGET_TEMPLATE_HEADERS.map((header) => sourceRows[index][header]),
+        item.contractId,
         item.targetId,
         item.link,
         warningFlags[index] ? "등록 완료(표시정보 일부 없음)" : "등록 완료"
       ]);
     });
     styleTargetSheet(outSheet);
-    outSheet.getColumn(TARGET_TEMPLATE_HEADERS.length + 1).width = 36;
-    outSheet.getColumn(TARGET_TEMPLATE_HEADERS.length + 2).width = 70;
-    outSheet.getColumn(TARGET_TEMPLATE_HEADERS.length + 3).width = 14;
+    outSheet.getColumn(TARGET_TEMPLATE_HEADERS.length + 1).width = 24;
+    outSheet.getColumn(TARGET_TEMPLATE_HEADERS.length + 2).width = 36;
+    outSheet.getColumn(TARGET_TEMPLATE_HEADERS.length + 3).width = 70;
+    outSheet.getColumn(TARGET_TEMPLATE_HEADERS.length + 4).width = 24;
 
     const buffer = await output.xlsx.writeBuffer();
     const filename = `${surveyId}_기업과제별_설문링크_${new Date().toISOString().slice(0, 10)}.xlsx`;
@@ -116,7 +146,8 @@ export async function POST(request: Request) {
         "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`,
         "Cache-Control": "no-store",
         "X-Imported-Count": String(issued.length),
-        "X-Import-Warning-Count": String(warningFlags.filter(Boolean).length)
+        "X-Import-Warning-Count": String(warningFlags.filter(Boolean).length),
+        "X-Skipped-Count": String(skippedCount)
       }
     });
   } catch (error) {
@@ -125,21 +156,73 @@ export async function POST(request: Request) {
   }
 }
 
-function readHeaderMap(sheet: ExcelJS.Worksheet): Map<HeaderName, number> {
+function readHeaderMap(sheet: ExcelJS.Worksheet, rowNumber: number): Map<HeaderName, number> {
   const result = new Map<HeaderName, number>();
   const aliases = new Map<string, HeaderName>();
   for (const header of TARGET_TEMPLATE_HEADERS) aliases.set(normalizeHeader(header), header);
   aliases.set(normalizeHeader("과제번호"), "과제ID");
   aliases.set(normalizeHeader("기업관리ID"), "기업ID");
   aliases.set(normalizeHeader("계약번호"), "계약ID");
+  aliases.set(normalizeHeader("기술실시기업"), "기업명");
+  aliases.set(normalizeHeader("비영리기관/기술보유기관"), "기술이전기관(연구기관)");
+  aliases.set(normalizeHeader("계약명"), "기술실시계약명");
   aliases.set(normalizeHeader("계약 체결일"), "계약체결일");
+  aliases.set(normalizeHeader("계약일_최종"), "계약체결일");
   aliases.set(normalizeHeader("계약금액"), "계약금액(기술료)");
+  aliases.set(normalizeHeader("계약금액_최종"), "계약금액(기술료)");
 
-  sheet.getRow(1).eachCell((cell, column) => {
+  sheet.getRow(rowNumber).eachCell((cell, column) => {
     const canonical = aliases.get(normalizeHeader(cellText(cell.value)));
     if (canonical) result.set(canonical, column);
   });
   return result;
+}
+
+function findTargetTable(workbook: ExcelJS.Workbook): {
+  sheet: ExcelJS.Worksheet;
+  headerMap: Map<HeaderName, number>;
+  headerRowNumber: number;
+  targetStatusColumn?: number;
+} | null {
+  const sheets = [...workbook.worksheets].sort((a, b) => {
+    if (a.name === "최종계약목록") return -1;
+    if (b.name === "최종계약목록") return 1;
+    return 0;
+  });
+
+  let best: ReturnType<typeof findSheetHeader> | null = null;
+  for (const sheet of sheets) {
+    const found = findSheetHeader(sheet);
+    if (found && (!best || found.headerMap.size > best.headerMap.size)) best = found;
+    if (found?.headerMap.has("계약ID") && found.headerMap.has("과제ID") && found.headerMap.has("기업명")) {
+      return found;
+    }
+  }
+  return best && best.headerMap.has("계약ID") ? best : null;
+}
+
+function findSheetHeader(sheet: ExcelJS.Worksheet) {
+  let best: {
+    sheet: ExcelJS.Worksheet;
+    headerMap: Map<HeaderName, number>;
+    headerRowNumber: number;
+    targetStatusColumn?: number;
+  } | null = null;
+  for (let rowNumber = 1; rowNumber <= Math.min(sheet.rowCount, 20); rowNumber += 1) {
+    const headerMap = readHeaderMap(sheet, rowNumber);
+    if (!best || headerMap.size > best.headerMap.size) {
+      let targetStatusColumn: number | undefined;
+      sheet.getRow(rowNumber).eachCell((cell, column) => {
+        if (normalizeHeader(cellText(cell.value)) === normalizeHeader("조사대상 여부")) targetStatusColumn = column;
+      });
+      best = { sheet, headerMap, headerRowNumber: rowNumber, targetStatusColumn };
+    }
+  }
+  return best;
+}
+
+function stableId(prefix: string, value: string): string {
+  return `${prefix}-${crypto.createHash("sha256").update(value.trim()).digest("hex").slice(0, 16).toUpperCase()}`;
 }
 
 function readText(row: ExcelJS.Row, map: Map<HeaderName, number>, name: HeaderName): string {

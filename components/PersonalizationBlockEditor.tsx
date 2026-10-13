@@ -286,6 +286,8 @@ function exampleTarget(surveyId: string): SurveyTarget {
       transferInstitution: "예시연구원",
       contractName: "환경기술 실시계약",
       signedAt: "2026-01-15",
+      periodStart: "2026-01-15",
+      periodEnd: "2030-12-31",
       amount: 10000000
     },
     active: true

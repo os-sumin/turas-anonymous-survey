@@ -1,5 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import SurveyForm from "@/components/SurveyForm";
+import ContractCodeEntry from "@/components/ContractCodeEntry";
 import { loadSurveyConfig } from "@/lib/survey-store";
 import { getEffectiveEndAt, isSurveyClosed } from "@/lib/survey-utils";
 import { isPersonalizedSurvey, resolveSurveyTarget } from "@/lib/target-store";
@@ -20,7 +21,8 @@ export default async function SurveyPage({ params, searchParams }: Props) {
     redirect(`/closed?surveyId=${encodeURIComponent(config.id)}`);
   }
 
-  const resolvedTarget = isPersonalizedSurvey(config)
+  const needsContractCode = isPersonalizedSurvey(config) && !searchParams.t;
+  const resolvedTarget = isPersonalizedSurvey(config) && searchParams.t
     ? await resolveSurveyTarget(config.id, searchParams.t)
     : null;
 
@@ -79,7 +81,11 @@ export default async function SurveyPage({ params, searchParams }: Props) {
           )}
         </div>
 
-        <SurveyForm config={config} token={searchParams.t} target={target} />
+        {needsContractCode ? (
+          <ContractCodeEntry surveyId={config.id} />
+        ) : (
+          <SurveyForm config={config} token={searchParams.t} target={target} />
+        )}
       </section>
 
       <div className="footer-note">Powered by TURAS Survey</div>

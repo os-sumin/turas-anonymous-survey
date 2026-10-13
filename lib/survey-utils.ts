@@ -393,3 +393,13 @@ export function hashToken(token: string): string | null {
   if (!secret || !token) return null;
   return crypto.createHmac("sha256", secret).update(token).digest("hex");
 }
+
+/**
+ * 이전 배포본에 남아 있을 수 있는 응답 수정 API의 빌드 호환용 함수.
+ * 새 화면에서는 수정 코드와 QR을 발급하거나 노출하지 않는다.
+ */
+export function hashEditCode(code: string): string | null {
+  const secret = process.env.TOKEN_HASH_SECRET;
+  if (!secret || !code) return null;
+  return crypto.createHmac("sha256", secret).update(`legacy-edit-code:${code}`).digest("hex");
+}

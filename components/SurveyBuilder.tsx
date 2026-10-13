@@ -389,6 +389,32 @@ export default function SurveyBuilder() {
     }));
   }
 
+  function moveQuestion(sectionId: string, questionId: string, direction: -1 | 1) {
+    const section = survey.sections.find((item) => item.id === sectionId);
+    if (!section) return;
+    const index = section.questions.findIndex((question) => question.id === questionId);
+    const destination = index + direction;
+    if (index < 0 || destination < 0 || destination >= section.questions.length) return;
+
+    const reordered = [...section.questions];
+    [reordered[index], reordered[destination]] = [reordered[destination], reordered[index]];
+    const nextSurvey: SurveyConfig = {
+      ...survey,
+      sections: survey.sections.map((item) => item.id === sectionId ? { ...item, questions: reordered } : item)
+    };
+
+    const invalid = nextSurvey.sections
+      .flatMap((item) => item.questions)
+      .find((question) => question.showIf && !priorChoiceQuestions(nextSurvey, question.id)
+        .some((candidate) => candidate.id === question.showIf?.questionId));
+    if (invalid) {
+      showToast(`‘${invalid.title}’의 분기 기준보다 앞으로 옮길 수 없습니다.`);
+      return;
+    }
+
+    setSurvey(nextSurvey);
+  }
+
   async function copyShareUrl() {
     await navigator.clipboard.writeText(shareUrl);
     showToast("응답 링크가 복사되었습니다.");
@@ -850,6 +876,10 @@ export default function SurveyBuilder() {
                   priorChoiceQuestions={priorChoiceQuestions(survey, question.id)}
                   onChange={(patch) => updateQuestion(selectedSection.id, question.id, patch)}
                   onRemove={() => removeQuestion(selectedSection.id, question.id)}
+                  onMoveUp={() => moveQuestion(selectedSection.id, question.id, -1)}
+                  onMoveDown={() => moveQuestion(selectedSection.id, question.id, 1)}
+                  canMoveUp={index > 0}
+                  canMoveDown={index < selectedSection.questions.length - 1}
                 />
               ))}
               {selectedSection.questions.length === 0 && (
@@ -932,20 +962,36 @@ function QuestionEditor({
   question,
   priorChoiceQuestions,
   onChange,
-  onRemove
+  onRemove,
+  onMoveUp,
+  onMoveDown,
+  canMoveUp,
+  canMoveDown
 }: {
   index: number;
   question: DraftQuestion;
   priorChoiceQuestions: SurveyQuestion[];
   onChange: (patch: Partial<DraftQuestion>) => void;
   onRemove: () => void;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+  canMoveUp: boolean;
+  canMoveDown: boolean;
 }) {
   const condBase = priorChoiceQuestions.find((q) => q.id === question.showIf?.questionId);
   return (
     <div className="question-editor">
       <div className="question-editor-head">
         <strong>Q{index + 1}. {question.id}</strong>
-        <button className="text-danger" onClick={onRemove}>삭제</button>
+        <div className="question-editor-actions">
+          <button type="button" className="question-move-button" onClick={onMoveUp} disabled={!canMoveUp} title="한 칸 위로 이동">
+            ↑ 위로
+          </button>
+          <button type="button" className="question-move-button" onClick={onMoveDown} disabled={!canMoveDown} title="한 칸 아래로 이동">
+            ↓ 아래로
+          </button>
+          <button type="button" className="text-danger" onClick={onRemove}>삭제</button>
+        </div>
       </div>
 
       <div className="builder-grid">

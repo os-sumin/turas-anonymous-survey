@@ -25,6 +25,8 @@ export const CONTRACT_FIELDS = [
   { key: "transferInstitution", label: "기술이전기관(연구기관)", header: "기술이전기관(연구기관)" },
   { key: "contractName", label: "기술실시계약명", header: "기술실시계약명" },
   { key: "signedAt", label: "계약 체결일", header: "계약체결일" },
+  { key: "periodStart", label: "실시 시작일", header: "실시 시작일" },
+  { key: "periodEnd", label: "실시 종료일", header: "실시 종료일" },
   { key: "amount", label: "계약금액(기술료)", header: "계약금액(기술료)" }
 ] as const;
 

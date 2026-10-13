@@ -69,9 +69,11 @@ export default function TargetManager() {
       });
       const count = response.headers.get("X-Imported-Count");
       const warningCount = Number(response.headers.get("X-Import-Warning-Count") || "0");
+      const skippedCount = Number(response.headers.get("X-Skipped-Count") || "0");
       await saveResponseFile(response, `${surveyId}_기업과제별_설문링크.xlsx`);
       setMessage(
-        `${count || "전체"}개 조사대상을 등록하고 개별 링크 엑셀을 생성했습니다.` +
+        `${count || "전체"}개 조사대상을 등록하고 계약ID 코드·개별 링크 엑셀을 생성했습니다.` +
+        (skippedCount > 0 ? ` 최종계약목록의 비조사대상·판단보류 ${skippedCount}개 행은 제외했습니다.` : "") +
         (warningCount > 0 ? ` ${warningCount}개 행은 설문 표시정보가 일부 비어 있으므로 결과 엑셀의 처리결과를 확인해 주세요.` : "")
       );
     } catch (error) {
@@ -127,8 +129,10 @@ export default function TargetManager() {
         <section className="builder-card">
           <h1>1. 조사대상 양식 준비</h1>
           <p className="target-manager-note">
-            양식의 기업ID·과제ID와 설문 제작 화면에서 표시하도록 선택한 정보 열은 필수입니다.
-            동일 기업·과제에 계약이 여러 건이면 계약ID도 반드시 구분해 주세요.
+            기본 양식은 과제ID·계약ID·기업명이 필수이며, 기업ID가 비어 있으면 기업명을 기준으로 자동 생성합니다.
+            표시정보가 비어 있으면 등록 결과에 경고로 표시됩니다.
+            KEITI 최종계약목록 엑셀은 <strong>최종계약목록</strong> 시트와 4행 제목을 자동으로 인식하며,
+            계약ID를 기업 안내 코드로 사용합니다.
           </p>
           <button className="builder-btn secondary" type="button" onClick={downloadTemplate} disabled={busy}>
             업로드 양식 내려받기
@@ -161,6 +165,7 @@ export default function TargetManager() {
           {message && <div className="response-notice target-manager-message">{message}</div>}
           <p className="target-manager-warning">
             같은 조사대상을 다시 등록하면 새 링크가 발급되고 이전 링크는 사용할 수 없습니다. 기존 응답은 삭제되지 않습니다.
+            최종계약목록에 ‘조사대상 여부’ 열이 있으면 값이 ‘조사대상’인 행만 등록됩니다.
           </p>
         </section>
       </div>

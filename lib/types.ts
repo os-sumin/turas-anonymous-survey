@@ -178,6 +178,8 @@ export type SurveyTargetContract = {
   transferInstitution: string;
   contractName: string;
   signedAt: string;
+  periodStart: string;
+  periodEnd: string;
   amount: number | null;
 };
 

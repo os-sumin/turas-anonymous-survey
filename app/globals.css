@@ -585,8 +585,25 @@ body {
 .question-editor-head {
   display: flex;
   justify-content: space-between;
+  align-items: center;
+  gap: 12px;
   margin-bottom: 14px;
 }
+
+.question-editor-actions { display: flex; align-items: center; gap: 7px; }
+.question-move-button {
+  border: 1px solid #cbd7e6;
+  border-radius: 9px;
+  padding: 6px 10px;
+  background: #fff;
+  color: #334155;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.question-move-button:hover:not(:disabled) { border-color: #1d4ed8; color: #1d4ed8; background: #eff6ff; }
+.question-move-button:disabled { opacity: .38; cursor: not-allowed; }
 
 .text-danger {
   border: 0;
@@ -1179,6 +1196,56 @@ body {
 .target-access-error { margin-top: 80px; padding: 40px; text-align: center; }
 .target-access-help { margin: 20px 0 0; color: var(--muted); }
 
+/* 계약ID로 맞춤형 설문 시작 */
+.contract-code-entry { padding: 28px 32px 34px; border-top: 1px solid var(--line); }
+.contract-code-title { display: flex; align-items: flex-start; gap: 13px; margin-bottom: 24px; }
+.contract-code-title > span {
+  flex: 0 0 auto;
+  border-radius: 8px;
+  padding: 6px 9px;
+  background: #eaf2ff;
+  color: #1d4ed8;
+  font-weight: 900;
+}
+.contract-code-title h2 { margin: 1px 0 7px; font-size: 21px; }
+.contract-code-title p { margin: 0; color: var(--muted); line-height: 1.6; }
+.contract-code-form { max-width: 720px; }
+.contract-code-form > label { display: block; margin-bottom: 8px; font-weight: 800; }
+.contract-code-form > label strong { margin-left: 5px; color: #dc2626; font-size: 12px; }
+.contract-code-input-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; }
+.contract-code-input-row input {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 13px 14px;
+  font: inherit;
+  text-transform: uppercase;
+}
+.contract-code-input-row input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(63,27,199,.08); }
+.contract-code-submit { width: auto; min-width: 150px; margin: 0; padding: 0 20px; }
+.contract-code-error { margin-top: 12px; }
+.contract-code-result { max-width: 820px; }
+.contract-code-confirmed {
+  display: inline-flex;
+  margin-bottom: 13px;
+  border-radius: 999px;
+  padding: 7px 11px;
+  background: #ecfdf5;
+  color: #047857;
+  font-size: 13px;
+  font-weight: 900;
+}
+.contract-code-summary { margin: 0; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+.contract-code-summary > div { display: grid; grid-template-columns: 210px minmax(0, 1fr); border-bottom: 1px solid var(--line); }
+.contract-code-summary > div:last-child { border-bottom: 0; }
+.contract-code-summary dt, .contract-code-summary dd { margin: 0; padding: 13px 15px; line-height: 1.55; }
+.contract-code-summary dt { background: #f8fafc; font-weight: 800; }
+.contract-code-summary dd { color: #1e293b; word-break: break-word; }
+.contract-code-question { margin: 22px 0 5px; font-size: 17px; font-weight: 900; }
+.contract-code-help { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.6; }
+.contract-code-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 22px; }
+.contract-code-actions .step-btn, .contract-code-actions .submit-btn { width: auto; min-width: 150px; margin: 0; }
+
 /* 맞춤형 설문 조사대상 관리자 */
 .target-manager-shell { width: min(980px, calc(100% - 32px)); margin: 28px auto 70px; display: grid; gap: 20px; }
 .target-manager-note, .target-manager-warning { color: var(--muted); line-height: 1.65; }
@@ -1187,6 +1254,18 @@ body {
 .target-manager-message { margin-top: 18px; }
 
 @media (max-width: 720px) {
+  .question-editor-head { align-items: flex-start; }
+  .question-editor-actions { flex-wrap: wrap; justify-content: flex-end; }
+  .question-move-button { padding: 6px 8px; }
+  .contract-code-entry { padding: 24px 20px 28px; }
+  .contract-code-title { flex-direction: column; }
+  .contract-code-input-row { grid-template-columns: 1fr; }
+  .contract-code-submit { min-height: 46px; }
+  .contract-code-summary > div { grid-template-columns: 1fr; }
+  .contract-code-summary dt { padding-bottom: 5px; }
+  .contract-code-summary dd { padding-top: 5px; }
+  .contract-code-actions { flex-direction: column-reverse; }
+  .contract-code-actions .step-btn, .contract-code-actions .submit-btn { width: 100%; }
   .personalization-editor-head, .personalization-preview-head { flex-direction: column; align-items: stretch; }
   .personalization-editor-actions { justify-content: stretch; }
   .personalization-editor-actions .builder-btn { flex: 1; }

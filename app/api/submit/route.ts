@@ -50,6 +50,7 @@ export async function POST(request: Request) {
 
     let personalizedTarget: SurveyTarget | null = null;
     let personalizedTokenHash: string | null = null;
+    let personalizedCredentialField: "token_hash" | "code_token_hash" = "token_hash";
     if (isPersonalizedSurvey(config)) {
       const resolved = await resolveSurveyTarget(config.id, body.token);
       if (!resolved.ok) {
@@ -57,6 +58,7 @@ export async function POST(request: Request) {
       }
       personalizedTarget = resolved.value.target;
       personalizedTokenHash = resolved.value.tokenHash;
+      personalizedCredentialField = resolved.value.credentialField;
     }
 
     const rawAnswers = body.answers || {};
@@ -110,7 +112,7 @@ export async function POST(request: Request) {
       if (tokenHash) payload.token_hash = tokenHash;
     }
 
-    await saveToFirestore(payload, tokenHash, personalizedTarget?.targetId);
+    await saveToFirestore(payload, tokenHash, personalizedTarget?.targetId, personalizedCredentialField);
 
     return NextResponse.json({ ok: true, response_id: responseId });
   } catch (error) {
@@ -202,7 +204,8 @@ async function findMissingFiles(answers: Record<string, unknown>): Promise<strin
 async function saveToFirestore(
   payload: Record<string, unknown>,
   tokenHash: string | null,
-  targetId?: string
+  targetId?: string,
+  credentialField: "token_hash" | "code_token_hash" = "token_hash"
 ) {
   if (!isFirebaseConfigured()) {
     console.log("[survey-submit:dry-run]", JSON.stringify(payload, null, 2));
@@ -229,7 +232,7 @@ async function saveToFirestore(
       if (
         !targetSnap.exists ||
         targetData?.survey_id !== surveyId ||
-        targetData?.token_hash !== tokenHash ||
+        targetData?.[credentialField] !== tokenHash ||
         targetData?.active === false ||
         targetExpired
       ) {

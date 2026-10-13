@@ -14,19 +14,21 @@ export const TARGET_TEMPLATE_HEADERS = [
   "기술이전기관(연구기관)",
   "기술실시계약명",
   "계약체결일",
+  "실시 시작일",
+  "실시 종료일",
   "계약금액(기술료)",
   "링크만료일시"
 ] as const;
 
 export function styleTargetSheet(sheet: ExcelJS.Worksheet) {
-  const widths = [16, 18, 18, 22, 18, 14, 16, 12, 22, 38, 28, 32, 16, 20, 30];
+  const widths = [16, 18, 18, 22, 18, 14, 16, 12, 22, 38, 28, 32, 16, 16, 16, 20, 30];
   sheet.columns.forEach((column, index) => {
     column.width = widths[index] || 22;
   });
-  [1, 2, 3, 5, 13, 15].forEach((index) => {
+  [1, 2, 3, 5, 13, 14, 15, 17].forEach((index) => {
     sheet.getColumn(index).numFmt = "@";
   });
-  sheet.getColumn(14).numFmt = "#,##0";
+  sheet.getColumn(16).numFmt = "#,##0";
   const header = sheet.getRow(1);
   header.height = 32;
   header.font = { bold: true, color: { argb: "FFFFFFFF" } };
