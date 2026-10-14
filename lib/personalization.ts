@@ -32,8 +32,7 @@ export const CONTRACT_FIELDS = [
 
 export const CONTRACT_MATCH_OPTIONS = [
   "모두 일치",
-  "계약금액이 다름",
-  "기타 항목이 다름",
+  "일부 정보가 다름",
   "확인이 어려움"
 ] as const;
 
@@ -77,7 +76,9 @@ export function makePersonalizationBlock(
       key: field.key,
       label: field.label,
       visible: true
-    }))
+    })),
+    matchOptions: source === "contract" ? [...CONTRACT_MATCH_OPTIONS] : undefined,
+    correctionPrompt: source === "contract" ? "다른 정보가 있는 경우 정확한 내용을 입력해 주세요." : undefined
   };
 }
 
@@ -163,8 +164,23 @@ function normalizeBlockPlacement(block: PersonalizationBlock, config: SurveyConf
     position: ["before_first", "after_question", "after_last"].includes(block.position)
       ? block.position
       : "after_last",
-    fields: block.fields
+    fields: block.fields,
+    matchOptions: block.source === "contract" ? normalizeMatchOptions(block.matchOptions) : undefined,
+    correctionPrompt: block.source === "contract"
+      ? String(block.correctionPrompt || "다른 정보가 있는 경우 정확한 내용을 입력해 주세요.")
+      : undefined
   };
+}
+
+export function contractMatchOptions(block?: PersonalizationBlock): string[] {
+  return normalizeMatchOptions(block?.matchOptions);
+}
+
+function normalizeMatchOptions(options?: string[]): string[] {
+  const cleaned = Array.isArray(options)
+    ? Array.from(new Set(options.map((value) => String(value).trim()).filter(Boolean))).slice(0, 12)
+    : [];
+  return cleaned.length >= 2 ? cleaned : [...CONTRACT_MATCH_OPTIONS];
 }
 
 export function visibleBlockFields(block: PersonalizationBlock): Array<PersonalizationFieldConfig & { header: string }> {
@@ -182,14 +198,35 @@ export function blocksForSection(config: SurveyConfig, sectionId: string): Perso
 export function targetFieldValue(
   target: SurveyTarget | SurveyTargetSnapshot,
   source: PersonalizationSource,
-  key: string
+  key: string,
+  sourceHeader?: string
 ): string | number | null {
   if (target.sourceData && Object.prototype.hasOwnProperty.call(target.sourceData, key)) {
-    return target.sourceData[key] ?? null;
+    const dynamicValue = target.sourceData[key];
+    if (dynamicValue !== null && dynamicValue !== undefined && String(dynamicValue).trim() !== "") return dynamicValue;
   }
+  const fallbackKey = fixedFieldKey(source, sourceHeader || key);
+  if (fallbackKey === "projectId") return target.projectId;
+  if (fallbackKey === "contractId") return target.contractId;
   const record = source === "company" ? target.company : target.contract;
-  const value = (record as unknown as Record<string, string | number | null>)[key];
+  const value = (record as unknown as Record<string, string | number | null>)[fallbackKey];
   return value === undefined ? "" : value;
+}
+
+function fixedFieldKey(source: PersonalizationSource, value: string): string {
+  const header = value.replace(/\s+/g, "").replace(/[·ㆍ]/g, "").toLowerCase();
+  const companyAliases: Record<string, string> = {
+    기업명: "name", 기술실시기업: "name", 사업자등록번호: "businessNumber", 대표자명: "representative",
+    "소재지(시도)": "region", 소재지: "region", 기업규모: "size", 주요업종: "industry", 업종: "industry"
+  };
+  const contractAliases: Record<string, string> = {
+    과제번호: "projectId", 과제id: "projectId", 계약id: "contractId", 계약번호: "contractId",
+    연구개발과제명: "projectName", 과제명: "projectName", "기술이전기관(연구기관)": "transferInstitution",
+    "비영리기관/기술보유기관": "transferInstitution", 기술실시계약명: "contractName", 계약명: "contractName",
+    계약체결일: "signedAt", "계약일_최종": "signedAt", 실시시작일: "periodStart", 실시종료일: "periodEnd",
+    "계약금액(기술료)": "amount", 계약금액: "amount", "계약금액_최종": "amount"
+  };
+  return (source === "company" ? companyAliases[header] : contractAliases[header]) || value;
 }
 
 export function formatTargetFieldValue(value: string | number | null, key: string): string {
@@ -245,9 +282,9 @@ export function validatePersonalizedAnswers(
       return { ok: false, message: "기술실시계약 정보의 일치 여부를 선택해 주세요.", source: "contract" };
     }
 
-    const selected = Array.from(new Set(rawMatch)).filter((value) =>
-      (CONTRACT_MATCH_OPTIONS as readonly string[]).includes(value)
-    );
+    const contractBlock = blocks.find((block) => block.source === "contract");
+    const allowedOptions = contractMatchOptions(contractBlock);
+    const selected = Array.from(new Set(rawMatch)).filter((value) => allowedOptions.includes(value));
     if (selected.length !== rawMatch.length || selected.length === 0) {
       return { ok: false, message: "기술실시계약 정보의 일치 여부를 선택해 주세요.", source: "contract" };
     }
@@ -258,7 +295,7 @@ export function validatePersonalizedAnswers(
     }
 
     const correction = String(rawAnswers[CONTRACT_CORRECTION_ID] ?? "").trim().slice(0, 3000);
-    const needsCorrection = selected.includes("계약금액이 다름") || selected.includes("기타 항목이 다름");
+    const needsCorrection = selected.some((value) => value !== "모두 일치" && value !== "확인이 어려움");
     if (needsCorrection && !correction) {
       return { ok: false, message: "기술실시계약 정보에서 다른 항목을 선택한 경우 정정 내용을 입력해 주세요.", source: "contract" };
     }

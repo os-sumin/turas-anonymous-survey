@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
-  CONTRACT_MATCH_OPTIONS,
+  contractMatchOptions,
   fieldCatalog,
   formatTargetFieldValue,
   getPersonalizationBlocks,
@@ -381,6 +381,26 @@ export default function PersonalizationBlockEditor({ survey, password, onChange,
                 <strong>표시항목·순서·화면 명칭</strong>
                 <span>엑셀 열과 연결된 항목만 선택할 수 있습니다.</span>
               </div>
+              {block.source === "contract" && (
+                <div className="personalization-match-editor">
+                  <label>
+                    일치 여부 선택지 <span>한 줄에 하나씩 입력</span>
+                    <textarea
+                      value={contractMatchOptions(block).join("\n")}
+                      onChange={(event) => updateBlock(block.id, {
+                        matchOptions: event.target.value.split(/\r?\n/).map((value) => value.trim()).filter(Boolean)
+                      })}
+                    />
+                  </label>
+                  <label>
+                    정정 입력란 안내 문구
+                    <input
+                      value={block.correctionPrompt || "다른 정보가 있는 경우 정확한 내용을 입력해 주세요."}
+                      onChange={(event) => updateBlock(block.id, { correctionPrompt: event.target.value })}
+                    />
+                  </label>
+                </div>
+              )}
               <div className="personalization-field-list">
                 {block.fields.map((field, index) => {
                   const definition = fieldCatalog(block.source).find((item) => item.key === field.key);
@@ -453,14 +473,14 @@ function BlockPreview({ block, target }: { block: PersonalizationBlock; target: 
           {fields.map((field) => (
             <tr key={field.key}>
               <th>{field.label}</th>
-              <td>{formatTargetFieldValue(targetFieldValue(target, block.source, field.key), field.key)}</td>
+              <td>{formatTargetFieldValue(targetFieldValue(target, block.source, field.key, field.header), field.key)}</td>
               {block.source === "company" && <td className="preview-empty">다른 경우 입력</td>}
             </tr>
           ))}
         </tbody>
       </table>
       {block.source === "contract" && (
-        <div className="personalization-preview-options">{CONTRACT_MATCH_OPTIONS.join(" · ")}</div>
+        <div className="personalization-preview-options">{contractMatchOptions(block).join(" · ")}</div>
       )}
     </div>
   );

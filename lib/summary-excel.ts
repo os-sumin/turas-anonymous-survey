@@ -66,7 +66,7 @@ export async function buildSummaryWorkbook(
         sheet.addRow({
           section: companyBlock.title,
           question: field.label,
-          answer: `KEITI 보유: ${formatTargetFieldValue(targetFieldValue(record.target, "company", field.key), field.key)}\n정정: ${String(corrections[field.key] ?? "")}`
+          answer: `KEITI 보유: ${formatTargetFieldValue(targetFieldValue(record.target, "company", field.key, field.header), field.key)}\n정정: ${String(corrections[field.key] ?? "")}`
         }).alignment = { vertical: "top", wrapText: true };
       }
     }
@@ -75,7 +75,7 @@ export async function buildSummaryWorkbook(
         sheet.addRow({
           section: contractBlock.title,
           question: field.label,
-          answer: formatTargetFieldValue(targetFieldValue(record.target, "contract", field.key), field.key)
+          answer: formatTargetFieldValue(targetFieldValue(record.target, "contract", field.key, field.header), field.key)
         }).alignment = { vertical: "top", wrapText: true };
       }
       sheet.addRow({

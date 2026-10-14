@@ -15,7 +15,7 @@ import {
   COMPANY_CORRECTIONS_ID,
   CONTRACT_CORRECTION_ID,
   CONTRACT_MATCH_ID,
-  CONTRACT_MATCH_OPTIONS,
+  contractMatchOptions,
   blocksForSection,
   formatTargetFieldValue,
   hasCompanyVerification,
@@ -413,6 +413,7 @@ function TargetVerification({
     ? answers[CONTRACT_MATCH_ID] as string[]
     : [];
   const contractCorrection = String(answers[CONTRACT_CORRECTION_ID] ?? "");
+  const matchOptions = contractMatchOptions(block);
 
   function setCompanyCorrection(key: string, value: string) {
     const next: MapValue = { ...corrections };
@@ -457,7 +458,7 @@ function TargetVerification({
               </thead>
               <tbody>
                 {fields.map((field) => {
-                  const heldValue = formatTargetFieldValue(targetFieldValue(target, "company", field.key), field.key);
+                  const heldValue = formatTargetFieldValue(targetFieldValue(target, "company", field.key, field.header), field.key);
                   const correctionValue = String(corrections[field.key] ?? "");
                   return (
                     <tr key={field.key}>
@@ -512,7 +513,7 @@ function TargetVerification({
                   <tr key={field.key}>
                     <th scope="row">{field.label}</th>
                     <td className="held-value">
-                      {formatTargetFieldValue(targetFieldValue(target, "contract", field.key), field.key)}
+                      {formatTargetFieldValue(targetFieldValue(target, "contract", field.key, field.header), field.key)}
                     </td>
                   </tr>
                 ))}
@@ -521,7 +522,7 @@ function TargetVerification({
           </div>
 
           <div className="contract-match-options" id={`q-${CONTRACT_MATCH_ID}`}>
-            {CONTRACT_MATCH_OPTIONS.map((option) => (
+            {matchOptions.map((option) => (
               <label className="option" key={option}>
                 <input
                   type="checkbox"
@@ -537,7 +538,7 @@ function TargetVerification({
             정정 내용
             <textarea
               className="textarea"
-              placeholder="계약금액 또는 기타 항목이 다른 경우 정확한 내용을 입력해 주세요."
+              placeholder={block.correctionPrompt || "다른 정보가 있는 경우 정확한 내용을 입력해 주세요."}
               value={contractCorrection}
               onChange={(event) => setAnswer(CONTRACT_CORRECTION_ID, event.target.value)}
             />

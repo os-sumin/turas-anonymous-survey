@@ -164,6 +164,10 @@ export type PersonalizationBlock = {
   afterQuestionId?: string;
   /** 배열 순서가 화면 표시 순서이며 visible=false면 숨김 */
   fields: PersonalizationFieldConfig[];
+  /** 계약정보 블록의 일치 여부 선택지. 배열 순서대로 표시 */
+  matchOptions?: string[];
+  /** 계약정보 정정 입력란의 안내 문구 */
+  correctionPrompt?: string;
 };
 
 export type SurveyConfig = {

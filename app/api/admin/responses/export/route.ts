@@ -122,10 +122,10 @@ export async function GET(request: Request) {
         row.projectId = record.target.projectId;
         row.contractId = record.target.contractId;
         for (const field of companyFields) {
-          row[`held_company_${field.key}`] = targetFieldValue(record.target, "company", field.key) ?? "";
+          row[`held_company_${field.key}`] = targetFieldValue(record.target, "company", field.key, field.header) ?? "";
         }
         for (const field of contractFields) {
-          row[`held_contract_${field.key}`] = targetFieldValue(record.target, "contract", field.key) ?? "";
+          row[`held_contract_${field.key}`] = targetFieldValue(record.target, "contract", field.key, field.header) ?? "";
         }
       }
 

@@ -1210,6 +1210,11 @@ body {
 .personalization-field-head { display: flex; align-items: baseline; gap: 10px; margin: 18px 0 9px; }
 .personalization-field-head strong { font-size: 14px; }
 .personalization-field-head span { color: #64748b; font-size: 12px; }
+.personalization-match-editor { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 10px 0 16px; padding: 12px; border: 1px solid #dbe5f1; border-radius: 11px; background: #f8fafc; }
+.personalization-match-editor label { display: grid; gap: 6px; color: #334155; font-size: 12px; font-weight: 800; }
+.personalization-match-editor label span { color: #64748b; font-weight: 500; }
+.personalization-match-editor textarea, .personalization-match-editor input { width: 100%; border: 1px solid #cbd7e6; border-radius: 9px; padding: 9px 10px; background: #fff; font: inherit; }
+.personalization-match-editor textarea { min-height: 90px; resize: vertical; }
 .personalization-field-list { display: grid; gap: 7px; }
 .personalization-file-button { cursor: pointer; }
 .personalization-file-button input { display: none; }
@@ -1354,6 +1359,7 @@ body {
   .personalization-editor-actions .builder-btn { flex: 1; }
   .personalization-block-grid { grid-template-columns: 1fr; }
   .personalization-schema-grid { grid-template-columns: 1fr; }
+  .personalization-match-editor { grid-template-columns: 1fr; }
   .personalization-column-picker-head { align-items: flex-start; flex-direction: column; }
   .personalization-column-picker-list { grid-template-columns: 1fr; }
   .personalization-field-row { grid-template-columns: 68px 1fr 68px; }
