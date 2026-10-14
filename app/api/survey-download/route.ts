@@ -4,6 +4,7 @@ import { getClientIp, hit } from "@/lib/rate-limit";
 import { loadSurveyConfig } from "@/lib/survey-store";
 import { isSurveyClosed, sanitizeFilename } from "@/lib/survey-utils";
 import { isPersonalizedSurvey, resolveSurveyTarget } from "@/lib/target-store";
+import type { SurveyConfig, SurveyDownloadFile } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -44,7 +45,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ ok: false, message: "파일 다운로드가 설정되지 않았습니다." }, { status: 503 });
     }
 
-    const file = config.respondentDownload;
+    const file = resolveDownloadFile(config, url.searchParams);
     const expectedPrefix = `survey-downloads/${config.id}/`;
     if (!file || !file.path.startsWith(expectedPrefix) || file.path.includes("..")) {
       return NextResponse.json({ ok: false, message: "등록된 다운로드 자료가 없습니다." }, { status: 404 });
@@ -59,11 +60,12 @@ export async function GET(request: Request) {
     const downloadName = sanitizeFilename(file.name) || "survey-material";
     const encodedName = encodeURIComponent(downloadName)
       .replace(/[!'()*]/g, (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`);
+    const mode = url.searchParams.get("mode") === "view" ? "view" : "download";
     const [downloadUrl] = await storageFile.getSignedUrl({
       version: "v4",
       action: "read",
       expires: Date.now() + 5 * 60 * 1000,
-      responseDisposition: `attachment; filename*=UTF-8''${encodedName}`,
+      responseDisposition: `${mode === "view" ? "inline" : "attachment"}; filename*=UTF-8''${encodedName}`,
       responseType: file.type || "application/octet-stream"
     });
 
@@ -72,6 +74,27 @@ export async function GET(request: Request) {
     console.error(error);
     return NextResponse.json({ ok: false, message: "파일 다운로드 중 오류가 발생했습니다." }, { status: 500 });
   }
+}
+
+function resolveDownloadFile(config: SurveyConfig, params: URLSearchParams): SurveyDownloadFile | undefined {
+  const scope = params.get("scope") || "final";
+  if (scope === "final") return config.respondentDownload;
+
+  const ownerId = params.get("ownerId") || "";
+  const indexText = params.get("index") || "";
+  const index = Number(indexText);
+  if (!ownerId || !/^\d+$/.test(indexText) || !Number.isSafeInteger(index) || index < 0) return undefined;
+
+  if (scope === "section") {
+    return config.sections.find((section) => section.id === ownerId)?.attachments?.[index];
+  }
+  if (scope === "question") {
+    return config.sections
+      .flatMap((section) => section.questions)
+      .find((question) => question.id === ownerId)
+      ?.attachments?.[index];
+  }
+  return undefined;
 }
 
 function bad(message: string) {

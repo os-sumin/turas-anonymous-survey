@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import type {
   PersonalizationBlock,
   SurveyConfig,
+  SurveyDownloadFile,
   SurveyQuestion,
   SurveyTarget,
   UploadedFile
@@ -315,9 +316,18 @@ export default function SurveyForm({ config, token, target }: Props) {
       <section className="section" key={currentSection.id}>
         <h2 className="section-title">{currentSection.title}</h2>
         {currentSection.description && <p className="section-description">{currentSection.description}</p>}
+        {currentSection.attachments && currentSection.attachments.length > 0 && (
+          <GuidanceFiles
+            surveyId={config.id}
+            token={token}
+            scope="section"
+            ownerId={currentSection.id}
+            files={currentSection.attachments}
+          />
+        )}
         {beforeBlocks.map(renderPersonalizationBlock)}
-        {visibleQuestions.map((question) => (
-          <Fragment key={question.id}>
+        {visibleQuestions.map((question, questionIndex) => (
+          <Fragment key={`${currentSection.id}-${questionIndex}-${question.id}`}>
             <QuestionField
               surveyId={config.id}
               token={token}
@@ -579,6 +589,15 @@ function QuestionField({
         {question.required && <span className="required">*</span>}
       </div>
       {question.description && <p className="question-desc">{question.description}</p>}
+      {question.attachments && question.attachments.length > 0 && (
+        <GuidanceFiles
+          surveyId={surveyId}
+          token={token}
+          scope="question"
+          ownerId={question.id}
+          files={question.attachments}
+        />
+      )}
       {question.images && question.images.length > 0 && (
         <div className="survey-images question-images">
           {question.images.map((image, index) => (
@@ -891,6 +910,59 @@ function QuestionField({
         />
       )}
     </div>
+  );
+}
+
+function GuidanceFiles({
+  surveyId,
+  token,
+  scope,
+  ownerId,
+  files
+}: {
+  surveyId: string;
+  token?: string;
+  scope: "section" | "question";
+  ownerId: string;
+  files: SurveyDownloadFile[];
+}) {
+  return (
+    <aside className="guidance-files" aria-label="안내파일">
+      <strong className="guidance-files-title">안내파일</strong>
+      <div className="guidance-files-list">
+        {files.map((file, index) => {
+          const params = new URLSearchParams({
+            surveyId,
+            scope,
+            ownerId,
+            index: String(index)
+          });
+          if (token) params.set("t", token);
+          const viewParams = new URLSearchParams(params);
+          viewParams.set("mode", "view");
+          const downloadParams = new URLSearchParams(params);
+          downloadParams.set("mode", "download");
+          return (
+            <div className="guidance-file" key={`${file.path}-${index}`}>
+              <div className="guidance-file-meta">
+                <span>{file.name}</span>
+                <small>{formatSize(file.size)}</small>
+              </div>
+              <div className="guidance-file-actions">
+                <a
+                  href={`/api/survey-download?${viewParams.toString()}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  파일 보기
+                </a>
+                <a href={`/api/survey-download?${downloadParams.toString()}`}>다운로드</a>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </aside>
   );
 }
 

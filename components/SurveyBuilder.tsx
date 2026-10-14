@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import type {
   GridColumn,
   QuestionType,
+  ShowIfCondition,
+  ShowIfRule,
   SurveyConfig,
   SurveyDownloadFile,
   SurveyImage,
@@ -11,7 +13,7 @@ import type {
   SurveySection
 } from "@/lib/types";
 import { makeDefaultPersonalizationBlocks } from "@/lib/personalization";
-import { otherLabelOf } from "@/lib/survey-utils";
+import { getConditionOperator, getConditionRules, otherLabelOf } from "@/lib/survey-utils";
 import PersonalizationBlockEditor from "@/components/PersonalizationBlockEditor";
 
 type DraftQuestion = SurveyQuestion;
@@ -100,7 +102,6 @@ export default function SurveyBuilder() {
   const selectedSection =
     survey.sections.find((section) => section.id === selectedSectionId) || survey.sections[0];
   const priorSectionChoices = priorChoiceQuestionsForSection(survey, selectedSection.id);
-  const sectionCondBase = priorSectionChoices.find((question) => question.id === selectedSection.showIf?.questionId);
 
   const shareUrl = origin ? `${origin}/survey/${survey.id}` : `/survey/${survey.id}`;
 
@@ -224,10 +225,15 @@ export default function SurveyBuilder() {
         throw new Error(result.message || "불러오기에 실패했습니다.");
       }
 
-      setSurvey(result.config);
-      setSelectedSectionId(result.config.sections[0]?.id || "");
+      const repaired = repairDuplicateQuestionIds(result.config);
+      setSurvey(repaired.config);
+      setSelectedSectionId(repaired.config.sections[0]?.id || "");
       setShowList(false);
-      showToast(`${surveyId} 를 불러왔습니다.`);
+      showToast(
+        repaired.changed
+          ? `${surveyId} 를 불러오면서 중복 문항 ID를 자동 정리했습니다. 저장을 눌러 반영해 주세요.`
+          : `${surveyId} 를 불러왔습니다.`
+      );
     } catch (err) {
       showToast(err instanceof Error ? err.message : "불러오기에 실패했습니다.");
     }
@@ -344,75 +350,100 @@ export default function SurveyBuilder() {
   }
 
   function addQuestion(sectionId: string, type: QuestionType = "single") {
-    const questionCount = survey.sections.reduce((sum, section) => sum + section.questions.length, 0);
-    const newQuestion: DraftQuestion = normalizeQuestion({
-      id: `q${questionCount + 1}`,
-      type,
-      title: "새 문항을 입력해 주세요.",
-      required: false
-    });
-
-    setSurvey((prev) => ({
-      ...prev,
-      sections: prev.sections.map((section) =>
-        section.id === sectionId
-          ? { ...section, questions: [...section.questions, newQuestion] }
-          : section
-      )
-    }));
-  }
-
-  function updateQuestion(sectionId: string, questionId: string, patch: Partial<DraftQuestion>) {
     setSurvey((prev) => ({
       ...prev,
       sections: prev.sections.map((section) =>
         section.id === sectionId
           ? {
               ...section,
-              questions: section.questions.map((question) =>
-                question.id === questionId ? normalizeQuestion({ ...question, ...patch }) : question
-              )
+              questions: [
+                ...section.questions,
+                normalizeQuestion({
+                  id: nextAvailableQuestionId(prev),
+                  type,
+                  title: "새 문항을 입력해 주세요.",
+                  required: false
+                })
+              ]
             }
           : section
       )
     }));
   }
 
-  function removeQuestion(sectionId: string, questionId: string) {
+  function updateQuestion(sectionId: string, questionIndex: number, patch: Partial<DraftQuestion>) {
+    setSurvey((prev) => {
+      const sectionIndex = prev.sections.findIndex((section) => section.id === sectionId);
+      const section = prev.sections[sectionIndex];
+      const question = section?.questions[questionIndex];
+      if (!section || !question) return prev;
+
+      if (patch.id !== undefined && patch.id !== question.id) {
+        const nextId = patch.id.trim();
+        if (!nextId) {
+          setTimeout(() => showToast("문항 ID는 비워둘 수 없습니다."), 0);
+          return prev;
+        }
+        const duplicate = prev.sections.some((item, itemIndex) =>
+          item.questions.some((candidate, candidateIndex) =>
+            candidate.id === nextId && (itemIndex !== sectionIndex || candidateIndex !== questionIndex)
+          )
+        );
+        if (duplicate) {
+          setTimeout(() => showToast(`문항 ID ‘${nextId}’는 이미 사용 중입니다.`), 0);
+          return prev;
+        }
+        return renameQuestionId(prev, sectionIndex, questionIndex, nextId);
+      }
+
+      const sections = [...prev.sections];
+      const questions = [...section.questions];
+      questions[questionIndex] = normalizeQuestion({ ...question, ...patch });
+      sections[sectionIndex] = { ...section, questions };
+      return { ...prev, sections };
+    });
+  }
+
+  function removeQuestion(sectionId: string, questionIndex: number) {
     setSurvey((prev) => ({
       ...prev,
-      sections: prev.sections.map((section) =>
-        section.id === sectionId
-          ? { ...section, questions: section.questions.filter((question) => question.id !== questionId) }
-          : section
-      )
+      sections: prev.sections.map((section) => {
+        if (section.id !== sectionId) return section;
+        return {
+          ...section,
+          questions: section.questions.filter((_, index) => index !== questionIndex)
+        };
+      })
     }));
   }
 
-  function moveQuestion(sectionId: string, questionId: string, direction: -1 | 1) {
-    const section = survey.sections.find((item) => item.id === sectionId);
-    if (!section) return;
-    const index = section.questions.findIndex((question) => question.id === questionId);
-    const destination = index + direction;
-    if (index < 0 || destination < 0 || destination >= section.questions.length) return;
+  function moveQuestion(sectionId: string, questionIndex: number, direction: -1 | 1) {
+    setSurvey((prev) => {
+      const sectionIndex = prev.sections.findIndex((item) => item.id === sectionId);
+      const section = prev.sections[sectionIndex];
+      const destination = questionIndex + direction;
+      if (!section || questionIndex < 0 || destination < 0 || destination >= section.questions.length) return prev;
 
-    const reordered = [...section.questions];
-    [reordered[index], reordered[destination]] = [reordered[destination], reordered[index]];
-    const nextSurvey: SurveyConfig = {
-      ...survey,
-      sections: survey.sections.map((item) => item.id === sectionId ? { ...item, questions: reordered } : item)
-    };
+      const reordered = [...section.questions];
+      [reordered[questionIndex], reordered[destination]] = [reordered[destination], reordered[questionIndex]];
+      const sections = [...prev.sections];
+      sections[sectionIndex] = { ...section, questions: reordered };
+      const nextSurvey: SurveyConfig = { ...prev, sections };
 
-    const invalid = nextSurvey.sections
-      .flatMap((item) => item.questions)
-      .find((question) => question.showIf && !priorChoiceQuestions(nextSurvey, question.id)
-        .some((candidate) => candidate.id === question.showIf?.questionId));
-    if (invalid) {
-      showToast(`‘${invalid.title}’의 분기 기준보다 앞으로 옮길 수 없습니다.`);
-      return;
-    }
+      const invalid = nextSurvey.sections
+        .flatMap((item) => item.questions)
+        .find((question) => {
+          if (!question.showIf) return false;
+          const priorIds = new Set(priorChoiceQuestions(nextSurvey, question.id).map((candidate) => candidate.id));
+          return getConditionRules(question.showIf).some((rule) => !priorIds.has(rule.questionId));
+        });
+      if (invalid) {
+        setTimeout(() => showToast(`‘${invalid.title}’의 분기 기준보다 앞으로 옮길 수 없습니다.`), 0);
+        return prev;
+      }
 
-    setSurvey(nextSurvey);
+      return nextSurvey;
+    });
   }
 
   async function copyShareUrl() {
@@ -774,6 +805,18 @@ export default function SurveyBuilder() {
                   onChange={(event) => updateSection(selectedSection.id, { description: event.target.value })}
                 />
               </label>
+              <div className="builder-col-span">
+                섹션 안내파일 (선택)
+                <AttachmentEditor
+                  surveyId={survey.id}
+                  password={password}
+                  files={selectedSection.attachments || []}
+                  onChange={(attachments) => updateSection(selectedSection.id, {
+                    attachments: attachments.length > 0 ? attachments : undefined
+                  })}
+                  onNotify={showToast}
+                />
+              </div>
               <div className="builder-col-span cond-editor">
                 <label className="builder-check">
                   <input
@@ -783,7 +826,7 @@ export default function SurveyBuilder() {
                     onChange={(event) =>
                       updateSection(selectedSection.id, {
                         showIf: event.target.checked
-                          ? { questionId: priorSectionChoices[0]?.id || "", values: [] }
+                          ? makeShowIfCondition(priorSectionChoices[0])
                           : undefined
                       })
                     }
@@ -794,68 +837,12 @@ export default function SurveyBuilder() {
                   <p className="question-desc">앞 섹션에 객관식(단일·복수선택) 문항이 있어야 조건을 걸 수 있어요.</p>
                 )}
                 {selectedSection.showIf && (
-                  <div className="cond-body">
-                    <label className="cond-field">
-                      기준 문항
-                      <select
-                        value={selectedSection.showIf.questionId}
-                        onChange={(event) =>
-                          updateSection(selectedSection.id, {
-                            showIf: { questionId: event.target.value, values: [] }
-                          })
-                        }
-                      >
-                        {priorSectionChoices.map((question) => (
-                          <option key={question.id} value={question.id}>
-                            {question.id} — {question.title.slice(0, 30)}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <div className="cond-values">
-                      <span className="cond-values-label">이 답일 때 섹션 표시:</span>
-                      {(sectionCondBase?.options || []).map((option) => {
-                        const checked = selectedSection.showIf?.values.includes(option) || false;
-                        return (
-                          <label className="cond-value" key={option}>
-                            <input
-                              type="checkbox"
-                              checked={checked}
-                              onChange={(event) => {
-                                const current = selectedSection.showIf?.values || [];
-                                const next = event.target.checked
-                                  ? [...current, option]
-                                  : current.filter((value) => value !== option);
-                                updateSection(selectedSection.id, {
-                                  showIf: { questionId: selectedSection.showIf!.questionId, values: next }
-                                });
-                              }}
-                            />
-                            {option}
-                          </label>
-                        );
-                      })}
-                      {sectionCondBase?.allowOther && (
-                        <label className="cond-value">
-                          <input
-                            type="checkbox"
-                            checked={selectedSection.showIf.values.includes(otherLabelOf(sectionCondBase))}
-                            onChange={(event) => {
-                              const label = otherLabelOf(sectionCondBase);
-                              const current = selectedSection.showIf?.values || [];
-                              const next = event.target.checked
-                                ? [...current, label]
-                                : current.filter((value) => value !== label);
-                              updateSection(selectedSection.id, {
-                                showIf: { questionId: selectedSection.showIf!.questionId, values: next }
-                              });
-                            }}
-                          />
-                          {otherLabelOf(sectionCondBase)}
-                        </label>
-                      )}
-                    </div>
-                  </div>
+                  <ConditionEditor
+                    condition={selectedSection.showIf}
+                    availableQuestions={priorSectionChoices}
+                    subjectLabel="섹션"
+                    onChange={(showIf) => updateSection(selectedSection.id, { showIf })}
+                  />
                 )}
               </div>
             </div>
@@ -870,14 +857,17 @@ export default function SurveyBuilder() {
             <div className="builder-question-list">
               {selectedSection.questions.map((question, index) => (
                 <QuestionEditor
-                  key={question.id}
+                  key={`${selectedSection.id}-${index}-${question.id}`}
                   index={index}
                   question={question}
                   priorChoiceQuestions={priorChoiceQuestions(survey, question.id)}
-                  onChange={(patch) => updateQuestion(selectedSection.id, question.id, patch)}
-                  onRemove={() => removeQuestion(selectedSection.id, question.id)}
-                  onMoveUp={() => moveQuestion(selectedSection.id, question.id, -1)}
-                  onMoveDown={() => moveQuestion(selectedSection.id, question.id, 1)}
+                  surveyId={survey.id}
+                  password={password}
+                  onNotify={showToast}
+                  onChange={(patch) => updateQuestion(selectedSection.id, index, patch)}
+                  onRemove={() => removeQuestion(selectedSection.id, index)}
+                  onMoveUp={() => moveQuestion(selectedSection.id, index, -1)}
+                  onMoveDown={() => moveQuestion(selectedSection.id, index, 1)}
                   canMoveUp={index > 0}
                   canMoveDown={index < selectedSection.questions.length - 1}
                 />
@@ -906,16 +896,23 @@ export default function SurveyBuilder() {
             {survey.sections.map((section) => (
               <div className="preview-section" key={section.id}>
                 <strong>{section.title}{section.showIf ? " · 조건부" : ""}</strong>
+                {section.attachments && section.attachments.length > 0 && (
+                  <span className="preview-attachment-count">안내파일 {section.attachments.length}개</span>
+                )}
                 {section.showIf && (
                   <div className="question-desc">
-                    {section.showIf.questionId} = {section.showIf.values.join(", ") || "응답 미선택"}
+                    {conditionSummary(section.showIf)}
                   </div>
                 )}
-                {section.questions.map((question) => (
-                  <div className="preview-question" key={question.id}>
+                {section.questions.map((question, questionIndex) => (
+                  <div className="preview-question" key={`${section.id}-${questionIndex}-${question.id}`}>
                     {question.type === "file" && <span className="preview-file-tag">첨부</span>}
                     {question.title}
                     {question.required && <span> *</span>}
+                    {question.showIf && <span className="preview-condition-tag"> · 조건부</span>}
+                    {question.attachments && question.attachments.length > 0 && (
+                      <span className="preview-condition-tag"> · 안내파일 {question.attachments.length}개</span>
+                    )}
                   </div>
                 ))}
               </div>
@@ -961,6 +958,9 @@ function QuestionEditor({
   index,
   question,
   priorChoiceQuestions,
+  surveyId,
+  password,
+  onNotify,
   onChange,
   onRemove,
   onMoveUp,
@@ -971,6 +971,9 @@ function QuestionEditor({
   index: number;
   question: DraftQuestion;
   priorChoiceQuestions: SurveyQuestion[];
+  surveyId: string;
+  password: string;
+  onNotify: (message: string) => void;
   onChange: (patch: Partial<DraftQuestion>) => void;
   onRemove: () => void;
   onMoveUp: () => void;
@@ -978,7 +981,6 @@ function QuestionEditor({
   canMoveUp: boolean;
   canMoveDown: boolean;
 }) {
-  const condBase = priorChoiceQuestions.find((q) => q.id === question.showIf?.questionId);
   return (
     <div className="question-editor">
       <div className="question-editor-head">
@@ -1029,6 +1031,16 @@ function QuestionEditor({
             onChange={(next) => onChange({ images: next.length > 0 ? next : undefined })}
           />
         </div>
+        <div className="builder-col-span">
+          문항 안내파일 (선택)
+          <AttachmentEditor
+            surveyId={surveyId}
+            password={password}
+            files={question.attachments || []}
+            onChange={(attachments) => onChange({ attachments: attachments.length > 0 ? attachments : undefined })}
+            onNotify={onNotify}
+          />
+        </div>
         <label className="builder-check">
           <input
             type="checkbox"
@@ -1047,7 +1059,7 @@ function QuestionEditor({
               onChange={(event) =>
                 onChange({
                   showIf: event.target.checked
-                    ? { questionId: priorChoiceQuestions[0]?.id || "", values: [] }
+                    ? makeShowIfCondition(priorChoiceQuestions[0])
                     : undefined
                 })
               }
@@ -1058,56 +1070,12 @@ function QuestionEditor({
             <p className="question-desc">앞에 객관식(단일·복수선택) 문항이 있어야 조건을 걸 수 있어요.</p>
           )}
           {question.showIf && (
-            <div className="cond-body">
-              <label className="cond-field">
-                기준 문항
-                <select
-                  value={question.showIf.questionId}
-                  onChange={(e) => onChange({ showIf: { questionId: e.target.value, values: [] } })}
-                >
-                  {priorChoiceQuestions.map((q) => (
-                    <option key={q.id} value={q.id}>
-                      {q.id} — {q.title.slice(0, 20)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <div className="cond-values">
-                <span className="cond-values-label">이 답일 때 표시:</span>
-                {(condBase?.options || []).map((opt) => {
-                  const checked = question.showIf?.values.includes(opt) || false;
-                  return (
-                    <label className="cond-value" key={opt}>
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={(e) => {
-                          const cur = question.showIf?.values || [];
-                          const next = e.target.checked ? [...cur, opt] : cur.filter((v) => v !== opt);
-                          onChange({ showIf: { questionId: question.showIf!.questionId, values: next } });
-                        }}
-                      />
-                      {opt}
-                    </label>
-                  );
-                })}
-                {condBase?.allowOther && (
-                  <label className="cond-value">
-                    <input
-                      type="checkbox"
-                      checked={question.showIf?.values.includes(otherLabelOf(condBase)) || false}
-                      onChange={(e) => {
-                        const label = otherLabelOf(condBase);
-                        const cur = question.showIf?.values || [];
-                        const next = e.target.checked ? [...cur, label] : cur.filter((v) => v !== label);
-                        onChange({ showIf: { questionId: question.showIf!.questionId, values: next } });
-                      }}
-                    />
-                    {otherLabelOf(condBase)}
-                  </label>
-                )}
-              </div>
-            </div>
+            <ConditionEditor
+              condition={question.showIf}
+              availableQuestions={priorChoiceQuestions}
+              subjectLabel="문항"
+              onChange={(showIf) => onChange({ showIf })}
+            />
           )}
         </div>
 
@@ -1357,6 +1325,153 @@ function QuestionEditor({
   );
 }
 
+function makeShowIfCondition(question?: SurveyQuestion): ShowIfCondition {
+  return {
+    operator: "any",
+    rules: [{ questionId: question?.id || "", values: [] }]
+  };
+}
+
+function ConditionEditor({
+  condition,
+  availableQuestions,
+  subjectLabel,
+  onChange
+}: {
+  condition: ShowIfCondition;
+  availableQuestions: SurveyQuestion[];
+  subjectLabel: "문항" | "섹션";
+  onChange: (condition: ShowIfCondition) => void;
+}) {
+  const storedRules = getConditionRules(condition);
+  const rules: ShowIfRule[] = storedRules.length > 0
+    ? storedRules
+    : [{ questionId: availableQuestions[0]?.id || "", values: [] }];
+  const operator = getConditionOperator(condition);
+  const usedIds = new Set(rules.map((rule) => rule.questionId).filter(Boolean));
+  const nextQuestion = availableQuestions.find((question) => !usedIds.has(question.id));
+
+  function emit(nextRules: ShowIfRule[], nextOperator = operator) {
+    onChange({ operator: nextOperator, rules: nextRules });
+  }
+
+  function updateRule(index: number, patch: Partial<ShowIfRule>) {
+    emit(rules.map((rule, ruleIndex) => ruleIndex === index ? { ...rule, ...patch } : rule));
+  }
+
+  function removeRule(index: number) {
+    if (rules.length <= 1) return;
+    emit(rules.filter((_, ruleIndex) => ruleIndex !== index));
+  }
+
+  return (
+    <div className="cond-body">
+      {rules.length > 1 && (
+        <label className="cond-operator">
+          조건 간 연결
+          <select value={operator} onChange={(event) => emit(rules, event.target.value === "all" ? "all" : "any")}>
+            <option value="any">하나라도 충족 (OR)</option>
+            <option value="all">모두 충족 (AND)</option>
+          </select>
+        </label>
+      )}
+
+      <div className="cond-rule-list">
+        {rules.map((rule, index) => {
+          const base = availableQuestions.find((question) => question.id === rule.questionId);
+          return (
+            <div className="cond-rule" key={`${rule.questionId}-${index}`}>
+              <div className="cond-rule-head">
+                <strong>조건 {index + 1}</strong>
+                {rules.length > 1 && (
+                  <button type="button" className="text-danger" onClick={() => removeRule(index)}>조건 삭제</button>
+                )}
+              </div>
+              <label className="cond-field">
+                기준 문항
+                <select
+                  value={rule.questionId}
+                  onChange={(event) => updateRule(index, { questionId: event.target.value, values: [] })}
+                >
+                  {availableQuestions.map((question) => (
+                    <option
+                      key={question.id}
+                      value={question.id}
+                      disabled={question.id !== rule.questionId && usedIds.has(question.id)}
+                    >
+                      {question.id} — {question.title.slice(0, 36)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="cond-values">
+                <span className="cond-values-label">이 답일 때 {subjectLabel} 표시:</span>
+                {(base?.options || []).map((option) => {
+                  const checked = rule.values.includes(option);
+                  return (
+                    <label className="cond-value" key={option}>
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(event) => {
+                          const values = event.target.checked
+                            ? [...rule.values, option]
+                            : rule.values.filter((value) => value !== option);
+                          updateRule(index, { values });
+                        }}
+                      />
+                      {option}
+                    </label>
+                  );
+                })}
+                {base?.allowOther && (() => {
+                  const label = otherLabelOf(base);
+                  return (
+                    <label className="cond-value">
+                      <input
+                        type="checkbox"
+                        checked={rule.values.includes(label)}
+                        onChange={(event) => {
+                          const values = event.target.checked
+                            ? [...rule.values, label]
+                            : rule.values.filter((value) => value !== label);
+                          updateRule(index, { values });
+                        }}
+                      />
+                      {label}
+                    </label>
+                  );
+                })()}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <button
+        type="button"
+        className="builder-btn secondary small cond-add-rule"
+        disabled={!nextQuestion}
+        onClick={() => nextQuestion && emit([...rules, { questionId: nextQuestion.id, values: [] }])}
+      >
+        + 기준 문항 추가
+      </button>
+      {rules.length > 1 && (
+        <p className="cond-summary">현재 조건: {conditionSummary({ operator, rules })}</p>
+      )}
+    </div>
+  );
+}
+
+function conditionSummary(condition: ShowIfCondition): string {
+  const rules = getConditionRules(condition);
+  if (rules.length === 0) return "조건 미설정";
+  const connector = getConditionOperator(condition) === "all" ? " 그리고 " : " 또는 ";
+  return rules
+    .map((rule) => `${rule.questionId || "기준 미선택"} = ${rule.values.join(" / ") || "응답 미선택"}`)
+    .join(connector);
+}
+
 function normalizeQuestion(question: DraftQuestion): DraftQuestion {
   const base = {
     ...question,
@@ -1453,6 +1568,90 @@ function normalizeQuestion(question: DraftQuestion): DraftQuestion {
   }
 
   return base;
+}
+
+function nextAvailableQuestionId(survey: SurveyConfig): string {
+  const ids = new Set(survey.sections.flatMap((section) => section.questions.map((question) => question.id)));
+  let nextNumber = survey.sections
+    .flatMap((section) => section.questions)
+    .reduce((max, question) => {
+      const match = /^q(\d+)$/i.exec(question.id);
+      return match ? Math.max(max, Number(match[1])) : max;
+    }, 0) + 1;
+  while (ids.has(`q${nextNumber}`)) nextNumber += 1;
+  return `q${nextNumber}`;
+}
+
+function replaceConditionQuestionId(
+  condition: ShowIfCondition | undefined,
+  oldId: string,
+  newId: string
+): ShowIfCondition | undefined {
+  if (!condition) return undefined;
+  return {
+    operator: getConditionOperator(condition),
+    rules: getConditionRules(condition).map((rule) => ({
+      ...rule,
+      questionId: rule.questionId === oldId ? newId : rule.questionId
+    }))
+  };
+}
+
+/** 문항 ID를 바꿀 때 분기조건과 맞춤정보 블록의 참조도 함께 바꾼다. */
+function renameQuestionId(
+  survey: SurveyConfig,
+  targetSectionIndex: number,
+  targetQuestionIndex: number,
+  newId: string
+): SurveyConfig {
+  const oldId = survey.sections[targetSectionIndex]?.questions[targetQuestionIndex]?.id;
+  if (!oldId || oldId === newId) return survey;
+
+  const sections = survey.sections.map((section, sectionIndex) => ({
+    ...section,
+    showIf: replaceConditionQuestionId(section.showIf, oldId, newId),
+    questions: section.questions.map((question, questionIndex) => ({
+      ...question,
+      id: sectionIndex === targetSectionIndex && questionIndex === targetQuestionIndex ? newId : question.id,
+      showIf: replaceConditionQuestionId(question.showIf, oldId, newId)
+    }))
+  }));
+  const personalization = survey.personalization
+    ? {
+        ...survey.personalization,
+        blocks: survey.personalization.blocks?.map((block) => ({
+          ...block,
+          afterQuestionId: block.afterQuestionId === oldId ? newId : block.afterQuestionId
+        })),
+        contractAfterQuestionId:
+          survey.personalization.contractAfterQuestionId === oldId
+            ? newId
+            : survey.personalization.contractAfterQuestionId
+      }
+    : undefined;
+  return { ...survey, sections, personalization };
+}
+
+/** 구버전 또는 편집 중 생성된 중복 ID는 첫 문항을 유지하고 이후 문항만 안전한 ID로 교체한다. */
+function repairDuplicateQuestionIds(config: SurveyConfig): { config: SurveyConfig; changed: boolean } {
+  const used = new Set<string>();
+  let changed = false;
+  const sections = config.sections.map((section) => ({
+    ...section,
+    questions: section.questions.map((question) => {
+      let id = question.id?.trim() || nextAvailableQuestionId(config);
+      if (!id || used.has(id)) {
+        const base = id || "q";
+        let suffix = 2;
+        while (used.has(`${base}_${suffix}`)) suffix += 1;
+        id = `${base}_${suffix}`;
+        changed = true;
+      }
+      used.add(id);
+      return id === question.id ? question : { ...question, id };
+    })
+  }));
+  return changed ? { config: { ...config, sections }, changed } : { config, changed };
 }
 
 /**
@@ -1754,6 +1953,133 @@ function ImageManager({
 }
 
 const RESPONDENT_DOWNLOAD_MAX_BYTES = 50 * 1024 * 1024;
+const MAX_GUIDANCE_FILES = 10;
+
+async function uploadSurveyMaterial(
+  surveyId: string,
+  password: string,
+  selected: File
+): Promise<SurveyDownloadFile> {
+  const ticketResponse = await fetch("/api/admin/download-file", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-admin-password": password },
+    body: JSON.stringify({
+      survey_id: surveyId,
+      filename: selected.name,
+      content_type: selected.type || "application/octet-stream",
+      size: selected.size
+    })
+  });
+  const ticket = (await ticketResponse.json()) as {
+    ok?: boolean;
+    message?: string;
+    upload_url?: string;
+    path?: string;
+    content_type?: string;
+  };
+  if (!ticketResponse.ok || !ticket.ok || !ticket.upload_url || !ticket.path) {
+    throw new Error(ticket.message || "파일 업로드를 준비하지 못했습니다.");
+  }
+
+  const uploadResponse = await fetch(ticket.upload_url, {
+    method: "PUT",
+    headers: { "Content-Type": ticket.content_type || selected.type || "application/octet-stream" },
+    body: selected
+  });
+  if (!uploadResponse.ok) throw new Error("파일 업로드에 실패했습니다.");
+
+  return {
+    path: ticket.path,
+    name: selected.name,
+    size: selected.size,
+    type: selected.type || "application/octet-stream"
+  };
+}
+
+/** 섹션·문항 설명에 붙이는 응답자용 안내파일 목록 편집기. */
+function AttachmentEditor({
+  surveyId,
+  password,
+  files,
+  onChange,
+  onNotify
+}: {
+  surveyId: string;
+  password: string;
+  files: SurveyDownloadFile[];
+  onChange: (next: SurveyDownloadFile[]) => void;
+  onNotify: (message: string) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+
+  async function upload(selected: File | undefined) {
+    if (!selected) return;
+    if (!surveyId.trim()) {
+      onNotify("설문 ID를 먼저 입력해 주세요.");
+      return;
+    }
+    if (files.length >= MAX_GUIDANCE_FILES) {
+      onNotify(`안내파일은 섹션 또는 문항마다 최대 ${MAX_GUIDANCE_FILES}개까지 등록할 수 있습니다.`);
+      return;
+    }
+    if (selected.size <= 0 || selected.size > RESPONDENT_DOWNLOAD_MAX_BYTES) {
+      onNotify("안내파일은 파일당 50MB 이하만 등록할 수 있습니다.");
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const uploaded = await uploadSurveyMaterial(surveyId, password, selected);
+      onChange([...files, uploaded]);
+      onNotify("안내파일을 등록했습니다. 설문 저장을 눌러 반영해 주세요.");
+    } catch (error) {
+      onNotify(error instanceof Error ? error.message : "파일 업로드에 실패했습니다.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="respondent-download-editor guidance-file-editor">
+      {files.length > 0 ? (
+        <div className="guidance-file-list">
+          {files.map((file, index) => (
+            <div className="respondent-download-file" key={`${file.path}-${index}`}>
+              <div>
+                <strong>{file.name}</strong>
+                <span>{formatBuilderFileSize(file.size)}</span>
+              </div>
+              <button
+                type="button"
+                className="builder-btn danger small"
+                onClick={() => onChange(files.filter((_, fileIndex) => fileIndex !== index))}
+                disabled={busy}
+              >
+                제거
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="image-hint">등록한 파일은 해당 섹션 또는 문항 바로 아래에서 응답자가 확인·다운로드할 수 있습니다.</p>
+      )}
+      <label className="builder-btn secondary small respondent-download-upload">
+        {busy ? "업로드 중…" : "+ 안내파일 추가"}
+        <input
+          type="file"
+          accept=".pdf,.hwp,.hwpx,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip"
+          style={{ display: "none" }}
+          disabled={busy || files.length >= MAX_GUIDANCE_FILES}
+          onChange={(event) => {
+            void upload(event.target.files?.[0]);
+            event.target.value = "";
+          }}
+        />
+      </label>
+      <p className="image-hint">PDF·한글·Word·Excel·PowerPoint·ZIP, 파일당 최대 50MB · 최대 10개</p>
+    </div>
+  );
+}
 
 /** 설문 마지막에 노출할 자료 1개를 Firebase Storage에 업로드한다. */
 function RespondentDownloadEditor({
@@ -1784,40 +2110,7 @@ function RespondentDownloadEditor({
 
     setBusy(true);
     try {
-      const ticketResponse = await fetch("/api/admin/download-file", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-admin-password": password },
-        body: JSON.stringify({
-          survey_id: surveyId,
-          filename: selected.name,
-          content_type: selected.type || "application/octet-stream",
-          size: selected.size
-        })
-      });
-      const ticket = (await ticketResponse.json()) as {
-        ok?: boolean;
-        message?: string;
-        upload_url?: string;
-        path?: string;
-        content_type?: string;
-      };
-      if (!ticketResponse.ok || !ticket.ok || !ticket.upload_url || !ticket.path) {
-        throw new Error(ticket.message || "파일 업로드를 준비하지 못했습니다.");
-      }
-
-      const uploadResponse = await fetch(ticket.upload_url, {
-        method: "PUT",
-        headers: { "Content-Type": ticket.content_type || selected.type || "application/octet-stream" },
-        body: selected
-      });
-      if (!uploadResponse.ok) throw new Error("파일 업로드에 실패했습니다.");
-
-      onChange({
-        path: ticket.path,
-        name: selected.name,
-        size: selected.size,
-        type: selected.type || "application/octet-stream"
-      });
+      onChange(await uploadSurveyMaterial(surveyId, password, selected));
       onNotify("응답자 다운로드 자료를 등록했습니다. 설문 저장을 눌러 반영해 주세요.");
     } catch (error) {
       onNotify(error instanceof Error ? error.message : "파일 업로드에 실패했습니다.");

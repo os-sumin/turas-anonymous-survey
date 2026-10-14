@@ -16,7 +16,7 @@ export interface SurveyImage {
   caption?: string;
 }
 
-/** 설문 마지막에 응답자에게 제공하는 다운로드 자료 1건 */
+/** 설문에서 응답자에게 제공하는 다운로드 자료 1건 */
 export type SurveyDownloadFile = {
   path: string;
   name: string;
@@ -37,10 +37,21 @@ export interface GridColumn {
   placeholder?: string;
 }
 
-/** 앞의 객관식 문항 응답에 따라 문항 또는 섹션을 표시하는 조건 */
-export type ShowIfCondition = {
+/** 조건부 표시를 구성하는 기준 문항 1개와 허용 답변 */
+export type ShowIfRule = {
   questionId: string;
   values: string[];
+};
+
+/**
+ * 앞의 객관식 문항 응답에 따라 문항 또는 섹션을 표시하는 조건.
+ * rules는 복수 기준 문항용이며, questionId/values는 기존 저장 설문 호환용이다.
+ */
+export type ShowIfCondition = {
+  operator?: "any" | "all";
+  rules?: ShowIfRule[];
+  questionId?: string;
+  values?: string[];
 };
 
 export type SurveyQuestion = {
@@ -50,6 +61,8 @@ export type SurveyQuestion = {
   description?: string;
   /** 문항에 붙는 이미지 자료(참고 도표 등) */
   images?: SurveyImage[];
+  /** 문항 설명과 함께 응답자에게 제공하는 안내·참고 파일 */
+  attachments?: SurveyDownloadFile[];
   required?: boolean;
   options?: string[];
   /** 객관식(단일·복수) 전용: "기타(직접 입력)" 항목을 추가 */
@@ -103,6 +116,8 @@ export type SurveySection = {
   id: string;
   title: string;
   description?: string;
+  /** 섹션 설명과 함께 응답자에게 제공하는 안내·참고 파일 */
+  attachments?: SurveyDownloadFile[];
   /** 조건부 표시: 앞 섹션의 객관식 응답이 특정 값일 때만 이 섹션을 표시 */
   showIf?: ShowIfCondition;
   questions: SurveyQuestion[];

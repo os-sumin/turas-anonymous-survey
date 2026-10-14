@@ -34,8 +34,20 @@ export async function POST(request: Request) {
     }
 
     const baseUrl = validBaseUrl(baseUrlInput) || new URL(request.url).origin;
+    const fileBuffer = Buffer.from(await file.arrayBuffer());
+    if (fileBuffer.length < 4 || fileBuffer[0] !== 0x50 || fileBuffer[1] !== 0x4b) {
+      return jsonError("올바른 Excel 통합문서(.xlsx)가 아닙니다. Excel에서 ‘다른 이름으로 저장’ 후 다시 올려 주세요.", 400);
+    }
     const workbook = new ExcelJS.Workbook();
-    await workbook.xlsx.load(await file.arrayBuffer() as ExcelJS.Buffer);
+    try {
+      await workbook.xlsx.load(fileBuffer as unknown as ExcelJS.Buffer);
+    } catch (error) {
+      console.error("[target-import] 엑셀 통합문서 해석 실패", error);
+      return jsonError(
+        "엑셀 파일을 읽지 못했습니다. 암호가 걸리지 않은 .xlsx 파일인지 확인하고 Excel에서 다시 저장한 뒤 올려 주세요.",
+        400
+      );
+    }
     const detected = findTargetTable(workbook);
     if (!detected) {
       return jsonError("조사대상 표를 찾지 못했습니다. 계약ID·과제번호·기술실시기업 열을 확인해 주세요.", 400);

@@ -113,6 +113,16 @@ body {
 .cond-values { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .cond-values-label { font-size: 13px; color: var(--muted); font-weight: 700; }
 .cond-value { display: inline-flex; align-items: center; gap: 5px; font-size: 14px; background: #fff; border: 1px solid var(--line); border-radius: 999px; padding: 5px 11px; cursor: pointer; }
+.cond-operator { display: flex; align-items: center; gap: 10px; margin: 12px 0; color: #334155; font-size: 13px; font-weight: 800; }
+.cond-operator select { border: 1px solid var(--line); border-radius: 9px; padding: 7px 10px; background: #fff; font: inherit; }
+.cond-rule-list { display: grid; gap: 10px; }
+.cond-rule { border: 1px solid #dbe5f0; border-radius: 12px; padding: 12px; background: #fff; }
+.cond-rule-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 9px; }
+.cond-rule-head strong { color: #1e3a8a; font-size: 13px; }
+.cond-rule-head .text-danger { font-size: 12px; }
+.cond-add-rule { margin-top: 10px; }
+.cond-summary { margin: 10px 0 0; border-radius: 9px; padding: 9px 11px; background: #eef6ff; color: #1e3a8a; font-size: 13px; line-height: 1.55; }
+.preview-condition-tag { color: #1d4ed8; font-size: 12px; font-weight: 800; }
 
 /* 순위 선택 */
 .rank-list { display: grid; gap: 12px; }
@@ -177,6 +187,29 @@ body {
 }
 .survey-image figcaption { margin-top: 6px; font-size: 13px; color: var(--muted); text-align: center; }
 
+/* 섹션·문항별 관리자 안내파일 */
+.guidance-files {
+  margin: 12px 0 18px; padding: 14px; border: 1px solid #c8d8ef; border-radius: 14px;
+  background: #f8fbff;
+}
+.guidance-files-title { display: block; margin-bottom: 9px; color: var(--primary); font-size: 14px; }
+.guidance-files-list { display: grid; gap: 8px; }
+.guidance-file {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 10px 12px; border: 1px solid var(--line); border-radius: 11px; background: #fff;
+}
+.guidance-file-meta { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.guidance-file-meta span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; }
+.guidance-file-meta small { color: var(--muted); }
+.guidance-file-actions { display: flex; gap: 7px; flex-shrink: 0; }
+.guidance-file-actions a {
+  padding: 7px 11px; border: 1px solid var(--primary); border-radius: 9px;
+  color: var(--primary); background: #fff; text-decoration: none; font-size: 13px; font-weight: 800;
+}
+.guidance-file-actions a:last-child { color: #fff; background: var(--primary); }
+.guidance-file-actions a:hover { background: #eef2ff; }
+.guidance-file-actions a:last-child:hover { background: var(--primary-dark); }
+
 /* 빌더 설명 textarea */
 .builder-desc { min-height: 72px; resize: vertical; }
 
@@ -231,11 +264,15 @@ body {
   border: 1px solid #c8d8ef; border-radius: 10px; background: #f4f8fd; color: var(--primary);
 }
 .preview-download span { color: var(--muted); font-size: 13px; word-break: break-all; }
+.preview-attachment-count { display: block; margin-top: 4px; color: var(--primary); font-size: 12px; font-weight: 700; }
+.guidance-file-list .respondent-download-file:last-child { margin-bottom: 10px; }
 
 @media (max-width: 640px) {
   .rank-row { grid-template-columns: 60px 1fr; }
   .respondent-download { align-items: stretch; flex-direction: column; }
   .respondent-download-button { min-width: 0; }
+  .guidance-file { align-items: stretch; flex-direction: column; }
+  .guidance-file-actions a { flex: 1; text-align: center; }
 }
 
 .actions { display: flex; align-items: center; justify-content: flex-end; gap: 12px; border-top: 1px solid var(--line); padding-top: 24px; }

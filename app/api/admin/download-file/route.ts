@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 const MAX_SIZE_BYTES = 50 * 1024 * 1024;
 
-/** 설문 마지막에 표시할 응답자용 자료의 Storage 직접 업로드 URL을 발급한다. */
+/** 설문 마지막 또는 섹션·문항에 표시할 안내자료의 Storage 직접 업로드 URL을 발급한다. */
 export async function POST(request: Request) {
   const denied = guardAdmin(request);
   if (denied) return denied;

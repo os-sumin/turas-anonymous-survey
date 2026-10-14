@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import type { ShowIfCondition, SurveyConfig, SurveyQuestion, SurveySection, UploadedFile } from "./types";
+import type { ShowIfCondition, ShowIfRule, SurveyConfig, SurveyQuestion, SurveySection, UploadedFile } from "./types";
 
 export const DEFAULT_MAX_SIZE_MB = 20;
 export const HARD_MAX_SIZE_MB = 100;
@@ -31,16 +31,45 @@ export function isOtherValue(value: string, label: string): boolean {
   return value === label || value.startsWith(`${label}: `);
 }
 
-/** 조건이 없으면 항상 표시. 복수선택과 "기타: 내용" 값도 함께 처리한다. */
+/** 구버전 단일 조건을 포함해 항상 규칙 배열로 읽는다. */
+export function getConditionRules(cond: ShowIfCondition | undefined): ShowIfRule[] {
+  if (!cond) return [];
+  if (Array.isArray(cond.rules) && cond.rules.length > 0) {
+    return cond.rules.map((rule) => ({
+      questionId: String(rule?.questionId || ""),
+      values: Array.isArray(rule?.values) ? rule.values.map(String) : []
+    }));
+  }
+  if (cond.questionId) {
+    return [{
+      questionId: String(cond.questionId),
+      values: Array.isArray(cond.values) ? cond.values.map(String) : []
+    }];
+  }
+  return [];
+}
+
+export function getConditionOperator(cond: ShowIfCondition | undefined): "any" | "all" {
+  return cond?.operator === "all" ? "all" : "any";
+}
+
+/** 조건이 없으면 항상 표시. 규칙 내부 선택지는 OR, 규칙 사이는 any(OR) 또는 all(AND)로 평가한다. */
 export function isConditionMet(cond: ShowIfCondition | undefined, answers: Record<string, unknown>): boolean {
-  if (!cond || !cond.questionId || !cond.values || cond.values.length === 0) return true;
-  const raw = answers[cond.questionId];
-  const matches = (v: unknown) => {
-    const s = String(v ?? "");
-    return cond.values.some((target) => s === target || s.startsWith(`${target}: `));
+  const rules = getConditionRules(cond).filter((rule) => rule.questionId && rule.values.length > 0);
+  if (rules.length === 0) return true;
+
+  const matchesRule = (rule: ShowIfRule) => {
+    const raw = answers[rule.questionId];
+    const matches = (v: unknown) => {
+      const s = String(v ?? "");
+      return rule.values.some((target) => s === target || s.startsWith(`${target}: `));
+    };
+    if (Array.isArray(raw)) return raw.some(matches);
+    return matches(raw);
   };
-  if (Array.isArray(raw)) return raw.some(matches);
-  return matches(raw);
+
+  if (getConditionOperator(cond) === "all") return rules.every(matchesRule);
+  return rules.some(matchesRule);
 }
 
 export function isQuestionVisible(question: SurveyQuestion, answers: Record<string, unknown>): boolean {

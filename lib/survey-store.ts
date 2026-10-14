@@ -1,10 +1,57 @@
 import { FieldValue } from "firebase-admin/firestore";
 import { getDb, isFirebaseConfigured } from "./firebase-admin";
 import { surveys as builtinSurveys } from "./survey.config";
-import type { SurveyConfig, SurveyQuestion } from "./types";
+import type { ShowIfCondition, ShowIfRule, SurveyConfig, SurveyDownloadFile, SurveyQuestion } from "./types";
 import { getPersonalizationBlocks, visibleBlockFields } from "./personalization";
+import { getConditionOperator, getConditionRules } from "./survey-utils";
 
 const CONFIG_COLLECTION = "survey_configs";
+const MAX_DOWNLOAD_FILE_BYTES = 50 * 1024 * 1024;
+const MAX_GUIDANCE_FILES = 10;
+
+function normalizeDownloadFile(
+  file: SurveyDownloadFile,
+  surveyId: string,
+  subject: string
+): { ok: true; file: SurveyDownloadFile } | { ok: false; message: string } {
+  const expectedPrefix = `survey-downloads/${surveyId}/`;
+  if (!file?.path || !file.path.startsWith(expectedPrefix) || file.path.includes("..")) {
+    return { ok: false, message: `${subject}의 저장 경로가 올바르지 않습니다.` };
+  }
+  if (!file.name?.trim()) {
+    return { ok: false, message: `${subject}의 파일명이 없습니다.` };
+  }
+  if (!Number.isFinite(file.size) || file.size <= 0 || file.size > MAX_DOWNLOAD_FILE_BYTES) {
+    return { ok: false, message: `${subject}은 파일당 50MB 이하만 등록할 수 있습니다.` };
+  }
+  return {
+    ok: true,
+    file: {
+      path: file.path,
+      name: file.name.trim().slice(0, 300),
+      size: file.size,
+      type: file.type?.trim().slice(0, 200) || "application/octet-stream"
+    }
+  };
+}
+
+function normalizeGuidanceFiles(
+  files: SurveyDownloadFile[] | undefined,
+  surveyId: string,
+  subject: string
+): { ok: true; files: SurveyDownloadFile[] | undefined } | { ok: false; message: string } {
+  if (files === undefined) return { ok: true, files: undefined };
+  if (!Array.isArray(files) || files.length > MAX_GUIDANCE_FILES) {
+    return { ok: false, message: `${subject}은 최대 ${MAX_GUIDANCE_FILES}개까지 등록할 수 있습니다.` };
+  }
+  const normalized: SurveyDownloadFile[] = [];
+  for (const file of files) {
+    const checked = normalizeDownloadFile(file, surveyId, subject);
+    if (!checked.ok) return checked;
+    normalized.push(checked.file);
+  }
+  return { ok: true, files: normalized.length > 0 ? normalized : undefined };
+}
 
 /**
  * 설문 config 조회.
@@ -121,6 +168,51 @@ export function isBuiltinSurvey(surveyId: string): boolean {
   return Boolean(builtinSurveys[surveyId]);
 }
 
+function normalizeAndValidateCondition(
+  condition: ShowIfCondition,
+  subject: string,
+  priorQuestions: Map<string, SurveyQuestion>,
+  scope: "section" | "question"
+): { ok: true; condition: ShowIfCondition } | { ok: false; message: string } {
+  const rules = getConditionRules(condition);
+  if (rules.length === 0) {
+    return { ok: false, message: `${subject}의 표시 조건을 하나 이상 추가해 주세요.` };
+  }
+
+  const normalizedRules: ShowIfRule[] = [];
+  const usedQuestionIds = new Set<string>();
+  for (const rule of rules) {
+    const base = priorQuestions.get(rule.questionId);
+    if (!base || (base.type !== "single" && base.type !== "multiple")) {
+      return {
+        ok: false,
+        message: scope === "section"
+          ? `${subject}의 조건 기준은 앞 섹션의 객관식 문항이어야 합니다.`
+          : `${subject}의 조건 기준은 앞의 객관식 문항이어야 합니다.`
+      };
+    }
+    if (usedQuestionIds.has(rule.questionId)) {
+      return { ok: false, message: `${subject}에 같은 기준 문항이 중복되어 있습니다: ${rule.questionId}` };
+    }
+    usedQuestionIds.add(rule.questionId);
+
+    const values = Array.from(new Set(rule.values.map((value) => String(value).trim()).filter(Boolean)));
+    if (values.length === 0) {
+      return { ok: false, message: `${subject}을 표시할 답변을 조건별로 하나 이상 선택해 주세요.` };
+    }
+    const allowed = new Set([...(base.options || []), ...(base.allowOther ? [base.otherLabel?.trim() || "기타"] : [])]);
+    if (values.some((value) => !allowed.has(value))) {
+      return { ok: false, message: `${subject}의 조건 답변을 다시 선택해 주세요.` };
+    }
+    normalizedRules.push({ questionId: rule.questionId, values });
+  }
+
+  return {
+    ok: true,
+    condition: { operator: getConditionOperator(condition), rules: normalizedRules }
+  };
+}
+
 /** 저장 전 최소한의 형식 검증 */
 export function validateSurveyConfig(value: unknown): { ok: true; config: SurveyConfig } | { ok: false; message: string } {
   const config = value as SurveyConfig;
@@ -135,23 +227,9 @@ export function validateSurveyConfig(value: unknown): { ok: true; config: Survey
   delete (config as SurveyConfig & { allowEdit?: unknown }).allowEdit;
 
   if (config.respondentDownload) {
-    const file = config.respondentDownload;
-    const expectedPrefix = `survey-downloads/${config.id}/`;
-    if (!file.path || !file.path.startsWith(expectedPrefix) || file.path.includes("..")) {
-      return { ok: false, message: "응답자 다운로드 자료의 저장 경로가 올바르지 않습니다." };
-    }
-    if (!file.name?.trim()) {
-      return { ok: false, message: "응답자 다운로드 자료의 파일명이 없습니다." };
-    }
-    if (!Number.isFinite(file.size) || file.size <= 0 || file.size > 50 * 1024 * 1024) {
-      return { ok: false, message: "응답자 다운로드 자료는 50MB 이하 파일만 등록할 수 있습니다." };
-    }
-    config.respondentDownload = {
-      path: file.path,
-      name: file.name.trim().slice(0, 300),
-      size: file.size,
-      type: file.type?.trim().slice(0, 200) || "application/octet-stream"
-    };
+    const checked = normalizeDownloadFile(config.respondentDownload, config.id, "응답자 다운로드 자료");
+    if (!checked.ok) return checked;
+    config.respondentDownload = checked.file;
   }
 
   if (config.personalization?.enabled && config.anonymous) {
@@ -162,24 +240,28 @@ export function validateSurveyConfig(value: unknown): { ok: true; config: Survey
   }
 
   const questionIds = new Set<string>();
+  const sectionIds = new Set<string>();
   const priorQuestions = new Map<string, SurveyQuestion>();
   for (const section of config.sections) {
+    if (!section.id?.trim()) return { ok: false, message: "섹션 ID가 비어 있습니다." };
+    if (sectionIds.has(section.id)) return { ok: false, message: `섹션 ID가 중복되었습니다: ${section.id}` };
+    sectionIds.add(section.id);
     if (!Array.isArray(section.questions)) {
       return { ok: false, message: `섹션 "${section.id}"의 문항 형식이 올바르지 않습니다.` };
     }
+    const sectionFiles = normalizeGuidanceFiles(section.attachments, config.id, `섹션 "${section.title}"의 안내파일`);
+    if (!sectionFiles.ok) return sectionFiles;
+    section.attachments = sectionFiles.files;
 
     if (section.showIf) {
-      const base = priorQuestions.get(section.showIf.questionId);
-      if (!base || (base.type !== "single" && base.type !== "multiple")) {
-        return { ok: false, message: `섹션 "${section.title}"의 조건 기준은 앞 섹션의 객관식 문항이어야 합니다.` };
-      }
-      if (!Array.isArray(section.showIf.values) || section.showIf.values.length === 0) {
-        return { ok: false, message: `섹션 "${section.title}"을 표시할 답변을 하나 이상 선택해 주세요.` };
-      }
-      const allowed = new Set([...(base.options || []), ...(base.allowOther ? [base.otherLabel?.trim() || "기타"] : [])]);
-      if (section.showIf.values.some((value) => !allowed.has(value))) {
-        return { ok: false, message: `섹션 "${section.title}"의 조건 답변을 다시 선택해 주세요.` };
-      }
+      const checked = normalizeAndValidateCondition(
+        section.showIf,
+        `섹션 "${section.title}"`,
+        priorQuestions,
+        "section"
+      );
+      if (!checked.ok) return checked;
+      section.showIf = checked.condition;
     }
 
     for (const question of section.questions) {
@@ -191,18 +273,18 @@ export function validateSurveyConfig(value: unknown): { ok: true; config: Survey
       if (!question.title?.trim()) {
         return { ok: false, message: `문항 "${question.id}"의 제목을 입력해 주세요.` };
       }
+      const questionFiles = normalizeGuidanceFiles(question.attachments, config.id, `문항 "${question.title}"의 안내파일`);
+      if (!questionFiles.ok) return questionFiles;
+      question.attachments = questionFiles.files;
       if (question.showIf) {
-        const base = priorQuestions.get(question.showIf.questionId);
-        if (!base || (base.type !== "single" && base.type !== "multiple")) {
-          return { ok: false, message: `문항 "${question.title}"의 조건 기준은 앞의 객관식 문항이어야 합니다.` };
-        }
-        if (!Array.isArray(question.showIf.values) || question.showIf.values.length === 0) {
-          return { ok: false, message: `문항 "${question.title}"을 표시할 답변을 하나 이상 선택해 주세요.` };
-        }
-        const allowed = new Set([...(base.options || []), ...(base.allowOther ? [base.otherLabel?.trim() || "기타"] : [])]);
-        if (question.showIf.values.some((value) => !allowed.has(value))) {
-          return { ok: false, message: `문항 "${question.title}"의 조건 답변을 다시 선택해 주세요.` };
-        }
+        const checked = normalizeAndValidateCondition(
+          question.showIf,
+          `문항 "${question.title}"`,
+          priorQuestions,
+          "question"
+        );
+        if (!checked.ok) return checked;
+        question.showIf = checked.condition;
       }
       priorQuestions.set(question.id, question);
     }
