@@ -276,6 +276,10 @@ export function validateSurveyConfig(value: unknown): { ok: true; config: Survey
       const questionFiles = normalizeGuidanceFiles(question.attachments, config.id, `문항 "${question.title}"의 안내파일`);
       if (!questionFiles.ok) return questionFiles;
       question.attachments = questionFiles.files;
+      if (question.type === "info") {
+        question.required = false;
+        question.namePart = undefined;
+      }
       if (question.showIf) {
         const checked = normalizeAndValidateCondition(
           question.showIf,

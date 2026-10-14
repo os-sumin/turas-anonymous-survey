@@ -30,6 +30,7 @@ type SurveyListItem = {
 const PASSWORD_STORAGE_KEY = "turas_admin_password";
 
 const questionTypes: { value: QuestionType; label: string }[] = [
+  { value: "info", label: "안내·자료 블록(응답 없음)" },
   { value: "single", label: "단일선택" },
   { value: "multiple", label: "복수선택" },
   { value: "ranking", label: "순위선택" },
@@ -644,13 +645,19 @@ export default function SurveyBuilder() {
                 <span className="share-link-label">응답자용 링크</span>
                 <span className="share-link-note">
                   {survey.personalization?.enabled
-                    ? "맞춤형 설문은 조사대상 관리에서 기업·과제별 링크를 발급합니다."
+                    ? "공용 링크에서는 계약ID 입력 후 맞춤정보가 표시됩니다. 개별 링크도 함께 사용할 수 있습니다."
                     : "저장 후 접속할 수 있어요. 설문 ID를 바꾸면 링크도 바뀝니다."}
                 </span>
               </div>
               {survey.personalization?.enabled ? (
                 <div className="share-link-row">
-                  <input className="share-link-input" value="기업·과제별 개별 링크 사용" readOnly />
+                  <input className="share-link-input" value={shareUrl} readOnly onFocus={(e) => e.target.select()} />
+                  <button className="builder-btn secondary" type="button" onClick={copyShareUrl}>
+                    공용 링크 복사
+                  </button>
+                  <a className="builder-btn secondary" href={`/survey/${survey.id}`} target="_blank" rel="noreferrer">
+                    계약ID 화면 열기
+                  </a>
                   <a className="builder-btn primary" href={`/admin/targets?surveyId=${encodeURIComponent(survey.id)}`}>
                     조사대상 관리
                   </a>
@@ -748,8 +755,13 @@ export default function SurveyBuilder() {
                     }));
                   }}
                 />
-                기업·과제별 맞춤형 설문 (개별 토큰 링크)
+                기업·과제별 맞춤형 설문 (공용 링크 계약ID 입력 + 개별 링크)
               </label>
+              {survey.personalization?.enabled && (
+                <p className="builder-col-span personalized-access-help">
+                  저장 후 공용 응답자 링크로 접속하면 계약ID 입력 화면이 먼저 표시됩니다. 조사대상 엑셀을 등록해야 계약ID로 조회할 수 있습니다.
+                </p>
+              )}
               <label className="builder-check">
                 <input
                   type="checkbox"
@@ -849,9 +861,14 @@ export default function SurveyBuilder() {
 
             <div className="question-toolbar">
               <span>문항 {selectedSection.questions.length}개</span>
-              <button className="builder-btn primary" onClick={() => addQuestion(selectedSection.id)}>
-                + 문항 추가
-              </button>
+              <div className="question-toolbar-actions">
+                <button className="builder-btn secondary" onClick={() => addQuestion(selectedSection.id, "info")}>
+                  + 안내·자료 블록
+                </button>
+                <button className="builder-btn primary" onClick={() => addQuestion(selectedSection.id)}>
+                  + 응답 문항
+                </button>
+              </div>
             </div>
 
             <div className="builder-question-list">
@@ -906,6 +923,7 @@ export default function SurveyBuilder() {
                 )}
                 {section.questions.map((question, questionIndex) => (
                   <div className="preview-question" key={`${section.id}-${questionIndex}-${question.id}`}>
+                    {question.type === "info" && <span className="preview-info-tag">안내</span>}
                     {question.type === "file" && <span className="preview-file-tag">첨부</span>}
                     {question.title}
                     {question.required && <span> *</span>}
@@ -1005,7 +1023,10 @@ function QuestionEditor({
           문항 유형
           <select
             value={question.type}
-            onChange={(event) => onChange({ type: event.target.value as QuestionType })}
+            onChange={(event) => {
+              const type = event.target.value as QuestionType;
+              onChange({ type, ...(type === "info" ? { required: false } : {}) });
+            }}
           >
             {questionTypes.map((type) => (
               <option key={type.value} value={type.value}>{type.label}</option>
@@ -1017,7 +1038,7 @@ function QuestionEditor({
           <input value={question.title} onChange={(event) => onChange({ title: event.target.value })} />
         </label>
         <label className="builder-col-span">
-          설명
+          {question.type === "info" ? "안내 설명" : "설명"}
           <textarea
             className="builder-desc"
             value={question.description || ""}
@@ -1032,7 +1053,7 @@ function QuestionEditor({
           />
         </div>
         <div className="builder-col-span">
-          문항 안내파일 (선택)
+          {question.type === "info" ? "응답자 제공 파일 (선택)" : "문항 안내파일 (선택)"}
           <AttachmentEditor
             surveyId={surveyId}
             password={password}
@@ -1041,14 +1062,16 @@ function QuestionEditor({
             onNotify={onNotify}
           />
         </div>
-        <label className="builder-check">
-          <input
-            type="checkbox"
-            checked={Boolean(question.required)}
-            onChange={(event) => onChange({ required: event.target.checked })}
-          />
-          필수 문항
-        </label>
+        {question.type !== "info" && (
+          <label className="builder-check">
+            <input
+              type="checkbox"
+              checked={Boolean(question.required)}
+              onChange={(event) => onChange({ required: event.target.checked })}
+            />
+            필수 문항
+          </label>
+        )}
 
         <div className="builder-col-span cond-editor">
           <label className="builder-check">
@@ -1496,6 +1519,10 @@ function normalizeQuestion(question: DraftQuestion): DraftQuestion {
     maxFiles: undefined,
     fileLabel: undefined
   } as DraftQuestion;
+
+  if (question.type === "info") {
+    return { ...base, required: false, namePart: undefined };
+  }
 
   if (question.type === "single") {
     return {

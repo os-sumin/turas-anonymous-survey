@@ -1,4 +1,5 @@
 export type QuestionType =
+  | "info"
   | "single"
   | "multiple"
   | "ranking"
@@ -63,6 +64,7 @@ export type SurveyQuestion = {
   images?: SurveyImage[];
   /** 문항 설명과 함께 응답자에게 제공하는 안내·참고 파일 */
   attachments?: SurveyDownloadFile[];
+  /** info 유형은 응답을 받지 않으므로 항상 false로 저장 */
   required?: boolean;
   options?: string[];
   /** 객관식(단일·복수) 전용: "기타(직접 입력)" 항목을 추가 */

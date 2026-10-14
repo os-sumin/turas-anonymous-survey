@@ -25,7 +25,7 @@ export function extractNameParts(
   let company = "";
   let salesStatus = "";
 
-  const questions = flattenQuestions(config);
+  const questions = flattenQuestions(config).filter((question) => question.type !== "info");
 
   // 1) 명시적 태그 우선
   for (const question of questions) {

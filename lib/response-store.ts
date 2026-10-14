@@ -111,7 +111,7 @@ export function formatKST(iso: string): string {
 
 /** 화면·엑셀 공용 헤더 */
 export function buildHeaders(config: SurveyConfig) {
-  return flattenQuestions(config).map((question) => ({
+  return flattenQuestions(config).filter((question) => question.type !== "info").map((question) => ({
     id: question.id,
     title: question.title,
     type: question.type

@@ -583,10 +583,11 @@ function QuestionField({
   const mapValue = isMapValue(value) ? value : {};
   const gridValue: GridValue = isGridValue(value) ? (value as GridValue) : {};
   return (
-    <div className="question" id={`q-${question.id}`}>
+    <div className={`question ${question.type === "info" ? "information-block" : ""}`} id={`q-${question.id}`}>
+      {question.type === "info" && <div className="information-label">안내·자료</div>}
       <div className="question-title">
         {question.title}
-        {question.required && <span className="required">*</span>}
+        {question.type !== "info" && question.required && <span className="required">*</span>}
       </div>
       {question.description && <p className="question-desc">{question.description}</p>}
       {question.attachments && question.attachments.length > 0 && (
@@ -1120,6 +1121,7 @@ function getInitialAnswers(config: SurveyConfig): Answers {
   }
   for (const section of config.sections) {
     for (const question of section.questions) {
+      if (question.type === "info") continue;
       if (question.type === "multiple" || question.type === "file") answers[question.id] = [];
       else if (question.type === "ranking" || question.type === "matrix" || question.type === "grid") answers[question.id] = {};
       else answers[question.id] = "";
@@ -1130,6 +1132,8 @@ function getInitialAnswers(config: SurveyConfig): Answers {
 
 /** 문항 1개 검증. 문제가 있으면 메시지, 없으면 null */
 function checkQuestion(question: SurveyQuestion, value: AnswerValue | undefined): string | null {
+  if (question.type === "info") return null;
+
   if (question.type === "file") {
     const files = Array.isArray(value) ? (value as UploadedFile[]) : [];
     if (question.required && files.length === 0) return `"${question.title}" 문항에 파일을 첨부해 주세요.`;

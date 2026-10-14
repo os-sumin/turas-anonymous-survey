@@ -128,6 +128,8 @@ export function validateAnswers(
   const visibleQuestionIds = getVisibleQuestionIds(config, rawAnswers);
 
   for (const question of flattenQuestions(config)) {
+    // 안내·자료 블록은 화면에만 표시하고 응답 데이터에는 넣지 않는다.
+    if (question.type === "info") continue;
     const value = rawAnswers[question.id];
 
     // 조건부 표시로 숨겨진 섹션·문항은 필수 검사와 응답 수집에서 제외한다.

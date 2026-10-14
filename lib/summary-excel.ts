@@ -89,6 +89,7 @@ export async function buildSummaryWorkbook(
 
   for (const section of config.sections) {
     for (const question of section.questions) {
+      if (question.type === "info") continue;
       const value = record.answers[question.id];
       const answerText = isFileAnswer(value)
         ? (value as UploadedFile[]).map((file) => file.name).join("\n")
