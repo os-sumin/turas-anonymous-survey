@@ -1217,6 +1217,16 @@ body {
 .personalization-schema-card > span { margin-left: 10px; color: #64748b; font-size: 12px; }
 .personalization-schema-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 12px; }
 .personalization-schema-grid label { display: grid; gap: 5px; font-size: 12px; font-weight: 700; }
+.personalization-column-picker { margin: 14px 0; padding: 16px; border: 2px solid #93b4df; border-radius: 14px; background: #f8fbff; }
+.personalization-column-picker-head, .personalization-column-picker-actions { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.personalization-column-picker-head > div { display: flex; align-items: center; gap: 8px; }
+.personalization-column-picker-head span, .personalization-column-picker-actions span { color: #64748b; font-size: 12px; }
+.personalization-column-picker-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; max-height: 310px; overflow: auto; margin: 14px 0; padding: 10px; border: 1px solid #dbe5f1; border-radius: 10px; background: #fff; }
+.personalization-column-picker-list label { display: flex; align-items: center; gap: 7px; min-width: 0; padding: 7px; border-radius: 8px; font-size: 12px; }
+.personalization-column-picker-list label:hover { background: #f1f5f9; }
+.personalization-column-picker-list label span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.personalization-column-picker-list em { margin-left: auto; color: #1d4ed8; font-style: normal; font-weight: 800; }
+.personalization-column-picker-actions { justify-content: flex-end; }
 .personalization-field-row {
   display: grid; grid-template-columns: 72px minmax(170px, .8fr) minmax(190px, 1fr) 150px 72px;
   gap: 8px; align-items: center; padding: 8px; border: 1px solid #e2e8f0; border-radius: 11px;
@@ -1344,6 +1354,8 @@ body {
   .personalization-editor-actions .builder-btn { flex: 1; }
   .personalization-block-grid { grid-template-columns: 1fr; }
   .personalization-schema-grid { grid-template-columns: 1fr; }
+  .personalization-column-picker-head { align-items: flex-start; flex-direction: column; }
+  .personalization-column-picker-list { grid-template-columns: 1fr; }
   .personalization-field-row { grid-template-columns: 68px 1fr 68px; }
   .personalization-field-row > input { grid-column: 1 / -1; grid-row: 2; }
   .personalization-field-row > select { grid-column: 1 / -1; grid-row: 3; }

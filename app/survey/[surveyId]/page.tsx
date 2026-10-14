@@ -3,14 +3,14 @@ import SurveyForm from "@/components/SurveyForm";
 import ContractCodeEntry from "@/components/ContractCodeEntry";
 import { loadSurveyConfig } from "@/lib/survey-store";
 import { getEffectiveEndAt, isSurveyClosed } from "@/lib/survey-utils";
-import { isPersonalizedSurvey, resolveSurveyTarget } from "@/lib/target-store";
+import { isPersonalizedSurvey, resolveSurveyCompany, resolveSurveyTarget } from "@/lib/target-store";
 
 // Firestore에서 설문을 읽으므로 매 요청마다 최신 상태를 반영
 export const dynamic = "force-dynamic";
 
 type Props = {
   params: { surveyId: string };
-  searchParams: { t?: string };
+  searchParams: { t?: string; c?: string };
 };
 
 export default async function SurveyPage({ params, searchParams }: Props) {
@@ -25,6 +25,9 @@ export default async function SurveyPage({ params, searchParams }: Props) {
   const resolvedTarget = isPersonalizedSurvey(config) && searchParams.t
     ? await resolveSurveyTarget(config.id, searchParams.t)
     : null;
+  const resolvedCompany = isPersonalizedSurvey(config) && searchParams.c && !searchParams.t
+    ? await resolveSurveyCompany(config.id, searchParams.c)
+    : null;
 
   if (resolvedTarget && !resolvedTarget.ok) {
     return (
@@ -36,6 +39,15 @@ export default async function SurveyPage({ params, searchParams }: Props) {
           <p className="target-access-help">안내받으신 최신 설문 링크로 다시 접속해 주십시오.</p>
         </section>
       </main>
+    );
+  }
+  if (resolvedCompany && !resolvedCompany.ok) {
+    return (
+      <main className="page-shell"><section className="survey-card target-access-error">
+        <div className="badge">{config.agency}</div>
+        <h1 className="title">기업 맞춤형 링크를 확인해 주세요</h1>
+        <p className="subtitle">{resolvedCompany.message}</p>
+      </section></main>
     );
   }
 
@@ -60,7 +72,7 @@ export default async function SurveyPage({ params, searchParams }: Props) {
       <section className="survey-card">
         <div className="card-head">
           <div className="badge">{config.agency}</div>
-          <h1 className="title">{config.title}</h1>
+          <h1 className="title">{resolvedCompany?.ok ? `${resolvedCompany.value.companyName} 기술이전 설문` : config.title}</h1>
           {config.subtitle && <p className="subtitle survey-description">{config.subtitle}</p>}
           <p className="subtitle survey-description">{config.description}</p>
           {config.images && config.images.length > 0 && (
@@ -82,7 +94,12 @@ export default async function SurveyPage({ params, searchParams }: Props) {
         </div>
 
         {needsContractCode ? (
-          <ContractCodeEntry surveyId={config.id} />
+          <ContractCodeEntry
+            surveyId={config.id}
+            companyToken={searchParams.c}
+            companyName={resolvedCompany?.ok ? resolvedCompany.value.companyName : undefined}
+            contractCount={resolvedCompany?.ok ? resolvedCompany.value.contractCount : undefined}
+          />
         ) : (
           <SurveyForm config={config} token={searchParams.t} target={target} />
         )}

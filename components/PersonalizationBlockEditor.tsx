@@ -29,12 +29,21 @@ type Props = {
 
 const SOURCES: PersonalizationSource[] = ["company", "contract"];
 
+type LoadedSchema = {
+  sheetName: string;
+  headerRow: number;
+  columns: Array<{ key: string; sourceHeader: string }>;
+  suggested: PersonalizationExcelSchema["keyColumns"];
+};
+
 export default function PersonalizationBlockEditor({ survey, password, onChange, onSchemaChange, onNotify }: Props) {
   const blocks = useMemo(() => getPersonalizationBlocks(survey), [survey]);
   const [previewTarget, setPreviewTarget] = useState<SurveyTarget>(() => exampleTarget(survey.id));
   const [previewStatus, setPreviewStatus] = useState("작성예시 데이터로 미리보기 중입니다.");
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [loadingSchema, setLoadingSchema] = useState(false);
+  const [pendingSchema, setPendingSchema] = useState<LoadedSchema | null>(null);
+  const [selectedSchemaKeys, setSelectedSchemaKeys] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     setPreviewTarget(exampleTarget(survey.id));
@@ -107,22 +116,48 @@ export default function PersonalizationBlockEditor({ survey, password, onChange,
         headers: { "x-admin-password": password },
         body: form
       });
-      const result = await response.json() as {
+      const result = await response.json() as LoadedSchema & {
         ok?: boolean;
         message?: string;
-        sheetName: string;
-        headerRow: number;
-        columns: Array<{ key: string; sourceHeader: string }>;
-        suggested: PersonalizationExcelSchema["keyColumns"];
       };
       if (!response.ok || !result.ok) throw new Error(result.message || "엑셀 열을 읽지 못했습니다.");
+      const existingHeaders = new Set(blocks.flatMap((block) => block.fields)
+        .map((field) => field.sourceHeader ? normalizeHeader(field.sourceHeader) : "")
+        .filter(Boolean));
+      const required = new Set([result.suggested.contractId, result.suggested.projectId, result.suggested.companyName].filter(Boolean));
+      const selected = new Set(result.columns
+        .filter((column) => required.has(column.key) || existingHeaders.has(normalizeHeader(column.sourceHeader)))
+        .map((column) => column.key));
+      setPendingSchema({ sheetName: result.sheetName, headerRow: result.headerRow, columns: result.columns, suggested: result.suggested });
+      setSelectedSchemaKeys(selected);
+      onNotify(`${result.sheetName} 시트의 열 ${result.columns.length}개를 찾았습니다. 목록에 넣을 열을 선택해 주세요.`);
+    } catch (error) {
+      onNotify(error instanceof Error ? error.message : "엑셀 열을 읽지 못했습니다.");
+    } finally {
+      setLoadingSchema(false);
+    }
+  }
+
+  function applySelectedSchema() {
+    const result = pendingSchema;
+    if (!result) return;
+    const requiredEntries = [
+      [result.suggested.contractId, "계약ID"],
+      [result.suggested.projectId, "과제번호"],
+      [result.suggested.companyName, "기업명"]
+    ] as const;
+    const missingRequired = requiredEntries.filter(([key]) => !key || !selectedSchemaKeys.has(key)).map(([, label]) => label);
+    if (missingRequired.length) {
+      onNotify(`필수 열을 선택해 주세요: ${missingRequired.join(", ")}`);
+      return;
+    }
       const existing = new Map<string, { field: PersonalizationBlock["fields"][number]; source: PersonalizationSource }>();
       blocks.forEach((block) => block.fields.forEach((field) => {
         if (field.sourceHeader) existing.set(normalizeHeader(field.sourceHeader), { field, source: block.source });
       }));
       const bySource: Record<PersonalizationSource, PersonalizationBlock["fields"]> = { company: [], contract: [] };
       const resolvedKeys = new Map<string, string>();
-      result.columns.forEach((column) => {
+      result.columns.filter((column) => selectedSchemaKeys.has(column.key)).forEach((column) => {
         const previous = existing.get(normalizeHeader(column.sourceHeader));
         const source = previous?.source || inferSource(column.sourceHeader);
         const nextField = previous ? {
@@ -147,12 +182,8 @@ export default function PersonalizationBlockEditor({ survey, password, onChange,
         headerRow: result.headerRow,
         keyColumns: Object.fromEntries(Object.entries(result.suggested).map(([name, key]) => [name, key ? resolvedKeys.get(key) || key : ""])) as PersonalizationExcelSchema["keyColumns"]
       }, nextBlocks);
-      onNotify(`${result.sheetName} 시트의 열 ${result.columns.length}개를 불러왔습니다. 표시할 항목을 체크해 주세요.`);
-    } catch (error) {
-      onNotify(error instanceof Error ? error.message : "엑셀 열을 읽지 못했습니다.");
-    } finally {
-      setLoadingSchema(false);
-    }
+      setPendingSchema(null);
+      onNotify(`선택한 열 ${selectedSchemaKeys.size}개를 맞춤정보 목록에 연결했습니다.`);
   }
 
   function updateKeyColumn(name: keyof PersonalizationExcelSchema["keyColumns"], value: string) {
@@ -209,6 +240,50 @@ export default function PersonalizationBlockEditor({ survey, password, onChange,
           </button>
         </div>
       </div>
+
+      {pendingSchema && (
+        <div className="personalization-column-picker">
+          <div className="personalization-column-picker-head">
+            <div>
+              <strong>목록에 불러올 엑셀 열 선택</strong>
+              <span>{pendingSchema.sheetName} 시트 · 총 {pendingSchema.columns.length}개</span>
+            </div>
+            <div>
+              <button className="builder-btn secondary small" type="button" onClick={() => {
+                const required = new Set([pendingSchema.suggested.contractId, pendingSchema.suggested.projectId, pendingSchema.suggested.companyName].filter(Boolean));
+                setSelectedSchemaKeys(required);
+              }}>필수 열만</button>
+              <button className="builder-btn secondary small" type="button" onClick={() => setSelectedSchemaKeys(new Set(pendingSchema.columns.map((column) => column.key)))}>전체 선택</button>
+            </div>
+          </div>
+          <div className="personalization-column-picker-list">
+            {pendingSchema.columns.map((column) => {
+              const required = [pendingSchema.suggested.contractId, pendingSchema.suggested.projectId, pendingSchema.suggested.companyName].includes(column.key);
+              return (
+                <label key={column.key} className={required ? "is-required" : ""}>
+                  <input
+                    type="checkbox"
+                    checked={selectedSchemaKeys.has(column.key)}
+                    disabled={required}
+                    onChange={(event) => setSelectedSchemaKeys((current) => {
+                      const next = new Set(current);
+                      if (event.target.checked) next.add(column.key); else next.delete(column.key);
+                      return next;
+                    })}
+                  />
+                  <span>{column.sourceHeader}</span>
+                  {required && <em>필수</em>}
+                </label>
+              );
+            })}
+          </div>
+          <div className="personalization-column-picker-actions">
+            <span>{selectedSchemaKeys.size}개 선택</span>
+            <button className="builder-btn secondary small" type="button" onClick={() => setPendingSchema(null)}>취소</button>
+            <button className="builder-btn primary small" type="button" onClick={applySelectedSchema}>선택한 열 불러오기</button>
+          </div>
+        </div>
+      )}
 
       {survey.personalization?.excelSchema && dynamicFields.length > 0 && (
         <div className="personalization-schema-card">

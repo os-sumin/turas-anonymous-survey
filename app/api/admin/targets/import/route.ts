@@ -139,13 +139,14 @@ export async function POST(request: Request) {
     const output = new ExcelJS.Workbook();
     output.creator = "TURAS Survey";
     const outSheet = output.addWorksheet("개별설문링크", { views: [{ state: "frozen", ySplit: 1 }] });
-    outSheet.addRow([...TARGET_TEMPLATE_HEADERS, "기업 안내 코드(계약ID)", "조사대상ID", "설문링크", "처리결과"]);
+    outSheet.addRow([...TARGET_TEMPLATE_HEADERS, "기업 안내 코드(계약ID)", "조사대상ID", "기업 맞춤형 설문링크", "계약별 바로가기", "처리결과"]);
     issued.forEach((item, index) => {
       outSheet.addRow([
         ...TARGET_TEMPLATE_HEADERS.map((header) => sourceRows[index][header]),
         item.contractId,
         item.targetId,
         item.link,
+        item.directLink,
         warningFlags[index] ? "등록 완료(표시정보 일부 없음)" : "등록 완료"
       ]);
     });
@@ -153,7 +154,8 @@ export async function POST(request: Request) {
     outSheet.getColumn(TARGET_TEMPLATE_HEADERS.length + 1).width = 24;
     outSheet.getColumn(TARGET_TEMPLATE_HEADERS.length + 2).width = 36;
     outSheet.getColumn(TARGET_TEMPLATE_HEADERS.length + 3).width = 70;
-    outSheet.getColumn(TARGET_TEMPLATE_HEADERS.length + 4).width = 24;
+    outSheet.getColumn(TARGET_TEMPLATE_HEADERS.length + 4).width = 70;
+    outSheet.getColumn(TARGET_TEMPLATE_HEADERS.length + 5).width = 24;
 
     const buffer = await output.xlsx.writeBuffer();
     const filename = `${surveyId}_기업과제별_설문링크_${new Date().toISOString().slice(0, 10)}.xlsx`;
@@ -247,8 +249,8 @@ async function importDynamicTargets(workbook: ExcelJS.Workbook, config: SurveyCo
   const issued = await issueSurveyTargets(surveyId, inputs, baseUrl);
   const output = new ExcelJS.Workbook();
   const outSheet = output.addWorksheet("개별설문링크", { views: [{ state: "frozen", ySplit: 1 }] });
-  outSheet.addRow([...detected.columns.map((column) => column.sourceHeader), "기업 안내 코드(계약ID)", "조사대상ID", "설문링크", "처리결과"]);
-  issued.forEach((item, index) => outSheet.addRow([...outputRows[index], item.contractId, item.targetId, item.link, "등록 완료"]));
+  outSheet.addRow([...detected.columns.map((column) => column.sourceHeader), "기업 안내 코드(계약ID)", "조사대상ID", "기업 맞춤형 설문링크", "계약별 바로가기", "처리결과"]);
+  issued.forEach((item, index) => outSheet.addRow([...outputRows[index], item.contractId, item.targetId, item.link, item.directLink, "등록 완료"]));
   styleTargetSheet(outSheet);
   const buffer = await output.xlsx.writeBuffer();
   return new NextResponse(buffer as ArrayBuffer, {

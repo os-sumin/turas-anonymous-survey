@@ -24,7 +24,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const body = (await request.json()) as { survey_id?: string; contract_id?: string };
+    const body = (await request.json()) as { survey_id?: string; contract_id?: string; company_token?: string };
     const surveyId = String(body.survey_id || "").trim();
     const contractId = normalizeContractAccessCode(String(body.contract_id || ""));
     if (!surveyId || !contractId) return bad("설문 ID와 계약ID를 입력해 주세요.");
@@ -38,7 +38,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false, message: "답변 종료된 설문입니다." }, { status: 410 });
     }
 
-    const resolved = await resolveContractAccessCode(surveyId, contractId);
+    const companyToken = String(body.company_token || "").trim();
+    if (companyToken.length > 200) return bad("기업 링크 형식이 올바르지 않습니다.");
+    const resolved = await resolveContractAccessCode(surveyId, contractId, companyToken || undefined);
     if (!resolved.ok) {
       return NextResponse.json(
         { ok: false, message: resolved.message },

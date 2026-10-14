@@ -10,7 +10,17 @@ type LookupResult = {
   target?: SurveyTarget;
 };
 
-export default function ContractCodeEntry({ surveyId }: { surveyId: string }) {
+export default function ContractCodeEntry({
+  surveyId,
+  companyToken,
+  companyName,
+  contractCount
+}: {
+  surveyId: string;
+  companyToken?: string;
+  companyName?: string;
+  contractCount?: number;
+}) {
   const [code, setCode] = useState("");
   const [target, setTarget] = useState<SurveyTarget | null>(null);
   const [accessToken, setAccessToken] = useState("");
@@ -31,7 +41,7 @@ export default function ContractCodeEntry({ surveyId }: { surveyId: string }) {
       const response = await fetch("/api/target/access-code", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ survey_id: surveyId, contract_id: normalized })
+        body: JSON.stringify({ survey_id: surveyId, contract_id: normalized, company_token: companyToken })
       });
       const result = await response.json() as LookupResult;
       if (!response.ok || !result.ok || !result.target || !result.access_token) {
@@ -66,8 +76,12 @@ export default function ContractCodeEntry({ surveyId }: { surveyId: string }) {
       <div className="contract-code-title">
         <span>Q0.</span>
         <div>
-          <h2>응답 기업 및 대상 기술 기본 정보</h2>
-          <p>안내 메일에 기재된 계약ID를 입력하면 귀사가 응답할 기술의 계약정보가 표시됩니다.</p>
+          <h2>{companyName ? `${companyName}의 응답 대상 계약 선택` : "응답 기업 및 대상 기술 기본 정보"}</h2>
+          <p>
+            {companyName
+              ? `귀사에 등록된 계약 ${contractCount || 1}건 중 응답할 계약ID를 입력하면 해당 과제정보가 표시됩니다.`
+              : "안내 메일에 기재된 계약ID를 입력하면 귀사가 응답할 기술의 계약정보가 표시됩니다."}
+          </p>
         </div>
       </div>
 

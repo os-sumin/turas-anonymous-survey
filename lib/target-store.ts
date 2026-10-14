@@ -23,6 +23,13 @@ export type SurveyTargetInput = {
 
 export type IssuedSurveyTarget = SurveyTarget & {
   link: string;
+  directLink: string;
+};
+
+export type SurveyCompanyAccess = {
+  companyId: string;
+  companyName: string;
+  contractCount: number;
 };
 
 export type ResolvedSurveyTarget = {
@@ -37,6 +44,10 @@ export type TargetResolution =
 
 export type ContractCodeResolution =
   | { ok: true; value: ResolvedSurveyTarget; accessToken: string }
+  | { ok: false; status: 400 | 403 | 404 | 410 | 503; message: string };
+
+export type CompanyAccessResolution =
+  | { ok: true; value: SurveyCompanyAccess }
   | { ok: false; status: 400 | 403 | 404 | 410 | 503; message: string };
 
 export function isPersonalizedSurvey(config: { personalization?: { enabled?: boolean } }): boolean {
@@ -72,6 +83,12 @@ function createContractCodeToken(surveyId: string, targetId: string, contractId:
     .createHmac("sha256", secret)
     .update(`contract-code-token:${surveyId}:${targetId}:${normalized}`)
     .digest("base64url");
+}
+
+function createCompanyAccessToken(surveyId: string, companyId: string): string | null {
+  const secret = process.env.TOKEN_HASH_SECRET;
+  if (!secret || !companyId) return null;
+  return crypto.createHmac("sha256", secret).update(`company-access:${surveyId}:${companyId}`).digest("base64url");
 }
 
 export function toTargetSnapshot(target: SurveyTarget): SurveyTargetSnapshot {
@@ -156,7 +173,8 @@ export async function resolveSurveyTarget(surveyId: string, token?: string): Pro
 /** 계약ID 확인 후 URL에는 계약ID 대신 추측할 수 없는 접근 토큰을 돌려준다. */
 export async function resolveContractAccessCode(
   surveyId: string,
-  contractId: string
+  contractId: string,
+  companyToken?: string
 ): Promise<ContractCodeResolution> {
   if (!isFirebaseConfigured()) {
     return { ok: false, status: 503, message: "조사대상 저장소가 설정되지 않았습니다." };
@@ -185,6 +203,12 @@ export async function resolveContractAccessCode(
   const data = doc.data() as Record<string, unknown>;
   if (data.survey_id !== surveyId || data.active === false) {
     return { ok: false, status: 410, message: "현재 사용할 수 없는 계약ID입니다." };
+  }
+  if (companyToken) {
+    const companyTokenHash = hashToken(companyToken);
+    if (!companyTokenHash || data.company_token_hash !== companyTokenHash) {
+      return { ok: false, status: 403, message: "이 기업의 계약ID가 아닙니다. 안내받은 기업 링크와 계약ID를 확인해 주세요." };
+    }
   }
 
   const expiresAt = typeof data.expires_at === "string" ? data.expires_at : undefined;
@@ -224,6 +248,27 @@ export async function resolveContractAccessCode(
     value: { target, tokenHash, credentialField: "code_token_hash" },
     accessToken
   };
+}
+
+/** 기업별 링크를 확인하고 링크에 연결된 기업명과 계약 건수를 반환한다. */
+export async function resolveSurveyCompany(surveyId: string, companyToken?: string): Promise<CompanyAccessResolution> {
+  if (!companyToken) return { ok: false, status: 400, message: "기업 맞춤형 링크 정보가 없습니다." };
+  if (!isFirebaseConfigured()) return { ok: false, status: 503, message: "조사대상 저장소가 설정되지 않았습니다." };
+  if (!hasSecureTokenSecret()) return { ok: false, status: 503, message: "조사대상 링크 보안 설정이 완료되지 않았습니다." };
+  const companyTokenHash = hashToken(companyToken);
+  if (!companyTokenHash) return { ok: false, status: 503, message: "기업 맞춤형 링크 보안 설정이 완료되지 않았습니다." };
+  const snap = await getDb().collection(TARGET_COLLECTION).where("company_token_hash", "==", companyTokenHash).get();
+  if (snap.empty) return { ok: false, status: 404, message: "유효하지 않은 기업 맞춤형 링크입니다." };
+  const valid = snap.docs.filter((doc) => {
+    const data = doc.data() as Record<string, unknown>;
+    if (data.survey_id !== surveyId || data.active === false) return false;
+    const expiresAt = typeof data.expires_at === "string" ? new Date(data.expires_at) : null;
+    return !expiresAt || Number.isNaN(expiresAt.getTime()) || Date.now() <= expiresAt.getTime();
+  });
+  if (!valid.length) return { ok: false, status: 410, message: "사용기간이 만료되었거나 중지된 기업 링크입니다." };
+  const first = valid[0].data() as Record<string, unknown>;
+  const company = normalizeCompany(first.company);
+  return { ok: true, value: { companyId: String(first.company_id || ""), companyName: company.name, contractCount: valid.length } };
 }
 
 /** 설문 제작 화면 미리보기용 조사대상 1건. 토큰과 토큰 해시는 반환하지 않는다. */
@@ -268,6 +313,7 @@ export async function issueSurveyTargets(
   const normalizedBase = baseUrl.replace(/\/+$/, "");
   const seen = new Set<string>();
   const seenAccessCodes = new Set<string>();
+  const companyCredentials = new Map<string, { token: string; tokenHash: string }>();
   const issued = inputs.map((raw) => {
     const input = normalizeInput(raw);
     const targetId = makeSurveyTargetId(surveyId, input);
@@ -279,6 +325,16 @@ export async function issueSurveyTargets(
     const token = createAccessToken();
     const tokenHash = hashToken(token);
     if (!tokenHash) throw new Error("조사대상 토큰을 생성하지 못했습니다.");
+
+    let companyCredential = companyCredentials.get(input.companyId);
+    if (!companyCredential) {
+      const companyToken = createCompanyAccessToken(surveyId, input.companyId);
+      if (!companyToken) throw new Error("기업 맞춤형 토큰을 생성하지 못했습니다.");
+      const companyTokenHash = hashToken(companyToken);
+      if (!companyTokenHash) throw new Error("기업 맞춤형 토큰을 생성하지 못했습니다.");
+      companyCredential = { token: companyToken, tokenHash: companyTokenHash };
+      companyCredentials.set(input.companyId, companyCredential);
+    }
 
     const codeHash = input.contractId ? accessCodeHash(surveyId, input.contractId) : null;
     const codeToken = input.contractId ? createContractCodeToken(surveyId, targetId, input.contractId) : null;
@@ -306,9 +362,11 @@ export async function issueSurveyTargets(
     return {
       target,
       tokenHash,
+      companyTokenHash: companyCredential.tokenHash,
       codeHash,
       codeTokenHash,
-      link: `${normalizedBase}/survey/${encodeURIComponent(surveyId)}?t=${encodeURIComponent(token)}`
+      link: `${normalizedBase}/survey/${encodeURIComponent(surveyId)}?c=${encodeURIComponent(companyCredential.token)}`,
+      directLink: `${normalizedBase}/survey/${encodeURIComponent(surveyId)}?t=${encodeURIComponent(token)}`
     };
   });
 
@@ -330,6 +388,7 @@ export async function issueSurveyTargets(
           active: true,
           expires_at: item.target.expiresAt || null,
           token_hash: item.tokenHash,
+          company_token_hash: item.companyTokenHash,
           access_code_hash: item.codeHash,
           code_token_hash: item.codeTokenHash,
           updated_at: FieldValue.serverTimestamp()
@@ -340,7 +399,7 @@ export async function issueSurveyTargets(
     await batch.commit();
   }
 
-  return issued.map(({ target, link }) => ({ ...target, link }));
+  return issued.map(({ target, link, directLink }) => ({ ...target, link, directLink }));
 }
 
 function normalizeInput(input: SurveyTargetInput): SurveyTargetInput {
