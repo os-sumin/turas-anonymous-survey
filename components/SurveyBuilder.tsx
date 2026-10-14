@@ -777,6 +777,12 @@ export default function SurveyBuilder() {
                 survey={survey}
                 password={password}
                 onNotify={showToast}
+                onSchemaChange={(excelSchema, blocks) => updateSurvey("personalization", {
+                  ...survey.personalization!,
+                  enabled: true,
+                  excelSchema,
+                  blocks
+                })}
                 onChange={(blocks) => updateSurvey("personalization", {
                   ...survey.personalization!,
                   enabled: true,

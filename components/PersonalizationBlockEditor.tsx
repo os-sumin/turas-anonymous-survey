@@ -13,6 +13,7 @@ import {
 } from "@/lib/personalization";
 import type {
   PersonalizationBlock,
+  PersonalizationExcelSchema,
   PersonalizationSource,
   SurveyConfig,
   SurveyTarget
@@ -22,16 +23,18 @@ type Props = {
   survey: SurveyConfig;
   password: string;
   onChange: (blocks: PersonalizationBlock[]) => void;
+  onSchemaChange: (schema: PersonalizationExcelSchema, blocks: PersonalizationBlock[]) => void;
   onNotify: (message: string) => void;
 };
 
 const SOURCES: PersonalizationSource[] = ["company", "contract"];
 
-export default function PersonalizationBlockEditor({ survey, password, onChange, onNotify }: Props) {
+export default function PersonalizationBlockEditor({ survey, password, onChange, onSchemaChange, onNotify }: Props) {
   const blocks = useMemo(() => getPersonalizationBlocks(survey), [survey]);
   const [previewTarget, setPreviewTarget] = useState<SurveyTarget>(() => exampleTarget(survey.id));
   const [previewStatus, setPreviewStatus] = useState("작성예시 데이터로 미리보기 중입니다.");
   const [loadingPreview, setLoadingPreview] = useState(false);
+  const [loadingSchema, setLoadingSchema] = useState(false);
 
   useEffect(() => {
     setPreviewTarget(exampleTarget(survey.id));
@@ -84,6 +87,82 @@ export default function PersonalizationBlockEditor({ survey, password, onChange,
     updateBlock(block.id, { fields: nextFields });
   }
 
+  function moveFieldToSource(block: PersonalizationBlock, fieldIndex: number, source: PersonalizationSource) {
+    if (source === block.source) return;
+    const field = block.fields[fieldIndex];
+    const next = blocks.map((item) => item.id === block.id
+      ? { ...item, fields: item.fields.filter((_, index) => index !== fieldIndex) }
+      : item.source === source ? { ...item, fields: [...item.fields, field] } : item);
+    onChange(next);
+  }
+
+  async function loadExcelSchema(file?: File) {
+    if (!file) return;
+    setLoadingSchema(true);
+    try {
+      const form = new FormData();
+      form.set("file", file);
+      const response = await fetch("/api/admin/targets/schema", {
+        method: "POST",
+        headers: { "x-admin-password": password },
+        body: form
+      });
+      const result = await response.json() as {
+        ok?: boolean;
+        message?: string;
+        sheetName: string;
+        headerRow: number;
+        columns: Array<{ key: string; sourceHeader: string }>;
+        suggested: PersonalizationExcelSchema["keyColumns"];
+      };
+      if (!response.ok || !result.ok) throw new Error(result.message || "엑셀 열을 읽지 못했습니다.");
+      const existing = new Map<string, { field: PersonalizationBlock["fields"][number]; source: PersonalizationSource }>();
+      blocks.forEach((block) => block.fields.forEach((field) => {
+        if (field.sourceHeader) existing.set(normalizeHeader(field.sourceHeader), { field, source: block.source });
+      }));
+      const bySource: Record<PersonalizationSource, PersonalizationBlock["fields"]> = { company: [], contract: [] };
+      const resolvedKeys = new Map<string, string>();
+      result.columns.forEach((column) => {
+        const previous = existing.get(normalizeHeader(column.sourceHeader));
+        const source = previous?.source || inferSource(column.sourceHeader);
+        const nextField = previous ? {
+          ...previous.field,
+          sourceHeader: column.sourceHeader,
+          missing: false
+        } : {
+          key: column.key,
+          sourceHeader: column.sourceHeader,
+          label: column.sourceHeader,
+          visible: false
+        };
+        bySource[source].push(nextField);
+        resolvedKeys.set(column.key, nextField.key);
+      });
+      const nextBlocks = SOURCES.map((source) => {
+        const current = blocks.find((block) => block.source === source) || makePersonalizationBlock(source, survey);
+        return { ...current, fields: bySource[source] };
+      });
+      onSchemaChange({
+        sheetName: result.sheetName,
+        headerRow: result.headerRow,
+        keyColumns: Object.fromEntries(Object.entries(result.suggested).map(([name, key]) => [name, key ? resolvedKeys.get(key) || key : ""])) as PersonalizationExcelSchema["keyColumns"]
+      }, nextBlocks);
+      onNotify(`${result.sheetName} 시트의 열 ${result.columns.length}개를 불러왔습니다. 표시할 항목을 체크해 주세요.`);
+    } catch (error) {
+      onNotify(error instanceof Error ? error.message : "엑셀 열을 읽지 못했습니다.");
+    } finally {
+      setLoadingSchema(false);
+    }
+  }
+
+  function updateKeyColumn(name: keyof PersonalizationExcelSchema["keyColumns"], value: string) {
+    const schema = survey.personalization?.excelSchema;
+    if (!schema) return;
+    onSchemaChange({ ...schema, keyColumns: { ...schema.keyColumns, [name]: value } }, blocks);
+  }
+
+  const dynamicFields = blocks.flatMap((block) => block.fields.filter((field) => field.sourceHeader));
+
   async function loadUploadedPreview() {
     setLoadingPreview(true);
     try {
@@ -115,6 +194,13 @@ export default function PersonalizationBlockEditor({ survey, password, onChange,
           <p>조사대상 엑셀의 열을 설문에 표시하고, 기업의 확인·정정 응답을 받습니다.</p>
         </div>
         <div className="personalization-editor-actions">
+          <label className="builder-btn secondary small personalization-file-button">
+            {loadingSchema ? "열 읽는 중" : "엑셀 열 불러오기"}
+            <input type="file" accept=".xlsx" disabled={loadingSchema} onChange={(event) => {
+              void loadExcelSchema(event.target.files?.[0]);
+              event.currentTarget.value = "";
+            }} />
+          </label>
           <button className="builder-btn secondary small" type="button" onClick={loadUploadedPreview} disabled={loadingPreview}>
             {loadingPreview ? "불러오는 중" : "업로드 자료로 미리보기"}
           </button>
@@ -123,6 +209,30 @@ export default function PersonalizationBlockEditor({ survey, password, onChange,
           </button>
         </div>
       </div>
+
+      {survey.personalization?.excelSchema && dynamicFields.length > 0 && (
+        <div className="personalization-schema-card">
+          <strong>식별 열 연결</strong>
+          <span>{survey.personalization.excelSchema.sheetName} 시트 · {survey.personalization.excelSchema.headerRow}행이 열 이름</span>
+          <div className="personalization-schema-grid">
+            {([
+              ["contractId", "계약ID (필수)"],
+              ["projectId", "과제번호 (필수)"],
+              ["companyName", "기업명 (필수)"],
+              ["companyId", "기업ID (선택)"],
+              ["targetStatus", "조사대상 여부 (선택)"],
+              ["expiresAt", "링크 만료일 (선택)"]
+            ] as const).map(([name, label]) => (
+              <label key={name}>{label}
+                <select value={survey.personalization!.excelSchema!.keyColumns[name] || ""} onChange={(event) => updateKeyColumn(name, event.target.value)}>
+                  <option value="">연결 안 함</option>
+                  {dynamicFields.map((field) => <option value={field.key} key={`${name}-${field.key}`}>{field.sourceHeader}</option>)}
+                </select>
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="personalization-block-list">
         {blocks.map((block) => {
@@ -199,19 +309,26 @@ export default function PersonalizationBlockEditor({ survey, password, onChange,
               <div className="personalization-field-list">
                 {block.fields.map((field, index) => {
                   const definition = fieldCatalog(block.source).find((item) => item.key === field.key);
-                  if (!definition) return null;
+                  const sourceHeader = field.sourceHeader || definition?.header;
+                  if (!sourceHeader) return null;
                   return (
                     <div className={`personalization-field-row ${field.visible ? "is-visible" : ""}`} key={field.key}>
                       <label className="personalization-field-check">
                         <input type="checkbox" checked={field.visible} onChange={() => toggleField(block, index)} />
                         표시
                       </label>
-                      <span className="personalization-field-source">엑셀 열: {definition.header}</span>
+                      <span className="personalization-field-source">엑셀 열: {sourceHeader}</span>
                       <input
-                        aria-label={`${definition.label} 화면 명칭`}
+                        aria-label={`${sourceHeader} 화면 명칭`}
                         value={field.label}
                         onChange={(event) => updateFieldLabel(block, index, event.target.value)}
                       />
+                      {field.sourceHeader && (
+                        <select aria-label={`${sourceHeader} 표시 블록`} value={block.source} onChange={(event) => moveFieldToSource(block, index, event.target.value as PersonalizationSource)}>
+                          <option value="company">기업정보 블록</option>
+                          <option value="contract">계약정보 블록</option>
+                        </select>
+                      )}
                       <div className="personalization-order-actions">
                         <button type="button" onClick={() => moveField(block, index, -1)} disabled={index === 0} aria-label="위로 이동">↑</button>
                         <button type="button" onClick={() => moveField(block, index, 1)} disabled={index === block.fields.length - 1} aria-label="아래로 이동">↓</button>
@@ -234,6 +351,14 @@ export default function PersonalizationBlockEditor({ survey, password, onChange,
       </div>
     </section>
   );
+}
+
+function normalizeHeader(value: string): string {
+  return value.replace(/\s+/g, "").replace(/[·ㆍ]/g, "").trim().toLowerCase();
+}
+
+function inferSource(header: string): PersonalizationSource {
+  return /(기업명|기술실시기업|사업자|대표자|소재지|기업규모|업종|기업id)/i.test(header) ? "company" : "contract";
 }
 
 function BlockPreview({ block, target }: { block: PersonalizationBlock; target: SurveyTarget }) {

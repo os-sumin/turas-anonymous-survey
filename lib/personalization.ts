@@ -113,6 +113,19 @@ export function getPersonalizationBlocks(config: SurveyConfig): PersonalizationB
 }
 
 function normalizeBlock(block: PersonalizationBlock, config: SurveyConfig): PersonalizationBlock {
+  const dynamicFields = (block.fields || []).filter((field) => Boolean(field?.sourceHeader));
+  if (config.personalization?.excelSchema) {
+    return normalizeBlockPlacement({
+      ...block,
+      fields: dynamicFields.map((field) => ({
+        key: String(field.key),
+        label: String(field.label || field.sourceHeader).trim() || String(field.sourceHeader),
+        visible: field.visible === true,
+        sourceHeader: String(field.sourceHeader),
+        missing: field.missing === true
+      }))
+    }, config);
+  }
   const catalog = fieldCatalog(block.source);
   const known = new Map<string, PersonalizationFieldDefinition>(catalog.map((field) => [field.key, field]));
   const saved = Array.isArray(block.fields) ? block.fields : [];
@@ -134,6 +147,10 @@ function normalizeBlock(block: PersonalizationBlock, config: SurveyConfig): Pers
     normalized.push({ key: definition.key, label: definition.label, visible: false });
   }
 
+  return normalizeBlockPlacement({ ...block, fields: normalized }, config);
+}
+
+function normalizeBlockPlacement(block: PersonalizationBlock, config: SurveyConfig): PersonalizationBlock {
   const firstSectionId = config.sections[0]?.id;
   const validSectionId = config.sections.some((section) => section.id === block.sectionId)
     ? block.sectionId
@@ -146,15 +163,15 @@ function normalizeBlock(block: PersonalizationBlock, config: SurveyConfig): Pers
     position: ["before_first", "after_question", "after_last"].includes(block.position)
       ? block.position
       : "after_last",
-    fields: normalized
+    fields: block.fields
   };
 }
 
 export function visibleBlockFields(block: PersonalizationBlock): Array<PersonalizationFieldConfig & { header: string }> {
   const headers = new Map<string, string>(fieldCatalog(block.source).map((field) => [field.key, field.header]));
   return block.fields
-    .filter((field) => field.visible && headers.has(field.key))
-    .map((field) => ({ ...field, header: headers.get(field.key)! }));
+    .filter((field) => field.visible && !field.missing && (Boolean(field.sourceHeader) || headers.has(field.key)))
+    .map((field) => ({ ...field, header: field.sourceHeader || headers.get(field.key)! }));
 }
 
 export function blocksForSection(config: SurveyConfig, sectionId: string): PersonalizationBlock[] {
@@ -167,6 +184,9 @@ export function targetFieldValue(
   source: PersonalizationSource,
   key: string
 ): string | number | null {
+  if (target.sourceData && Object.prototype.hasOwnProperty.call(target.sourceData, key)) {
+    return target.sourceData[key] ?? null;
+  }
   const record = source === "company" ? target.company : target.contract;
   const value = (record as unknown as Record<string, string | number | null>)[key];
   return value === undefined ? "" : value;

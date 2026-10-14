@@ -7,6 +7,8 @@ import { loadSurveyConfig } from "@/lib/survey-store";
 import { isPersonalizedSurvey, issueSurveyTargets, type SurveyTargetInput } from "@/lib/target-store";
 import { styleTargetSheet, TARGET_TEMPLATE_HEADERS } from "@/lib/target-excel";
 import { getPersonalizationBlocks, visibleBlockFields } from "@/lib/personalization";
+import { cellText as dynamicCellText, detectExcelTable, normalizeExcelHeader } from "@/lib/target-excel-reader";
+import type { PersonalizationFieldConfig, SurveyConfig } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -47,6 +49,9 @@ export async function POST(request: Request) {
         "엑셀 파일을 읽지 못했습니다. 암호가 걸리지 않은 .xlsx 파일인지 확인하고 Excel에서 다시 저장한 뒤 올려 주세요.",
         400
       );
+    }
+    if (config.personalization?.excelSchema) {
+      return importDynamicTargets(workbook, config, surveyId, baseUrl);
     }
     const detected = findTargetTable(workbook);
     if (!detected) {
@@ -166,6 +171,93 @@ export async function POST(request: Request) {
     console.error(error);
     return jsonError(error instanceof Error ? error.message : "조사대상 등록 중 오류가 발생했습니다.", 500);
   }
+}
+
+async function importDynamicTargets(workbook: ExcelJS.Workbook, config: SurveyConfig, surveyId: string, baseUrl: string) {
+  const schema = config.personalization?.excelSchema;
+  if (!schema) return jsonError("엑셀 열 연결 설정이 없습니다.", 400);
+  const detected = detectExcelTable(workbook);
+  if (!detected) return jsonError("조사대상 표를 찾지 못했습니다.", 400);
+  const allFields = getPersonalizationBlocks(config).flatMap((block) => block.fields)
+    .filter((field): field is PersonalizationFieldConfig & { sourceHeader: string } => Boolean(field.sourceHeader));
+  const configuredByHeader = new Map(allFields.map((field) => [normalizeExcelHeader(field.sourceHeader), field]));
+  const actualByHeader = new Map(detected.columns.map((column) => [normalizeExcelHeader(column.sourceHeader), column.column]));
+  const missingHeaders = [...configuredByHeader.keys()].filter((header) => !actualByHeader.has(header));
+  if (missingHeaders.length) {
+    const names = allFields.filter((field) => missingHeaders.includes(normalizeExcelHeader(field.sourceHeader))).map((field) => field.sourceHeader);
+    return jsonError(`연결된 엑셀 열이 없습니다: ${names.join(", ")}. 설문 편집기에서 엑셀 열을 다시 불러와 주세요.`, 400);
+  }
+  const fieldByKey = new Map(allFields.map((field) => [field.key, field]));
+  const readKey = (row: ExcelJS.Row, key?: string) => {
+    if (!key) return "";
+    const field = fieldByKey.get(key);
+    const column = field ? actualByHeader.get(normalizeExcelHeader(field.sourceHeader)) : undefined;
+    return column ? dynamicCellText(row.getCell(column).value) : "";
+  };
+  for (const [name, label] of [[schema.keyColumns.contractId, "계약ID"], [schema.keyColumns.projectId, "과제번호"], [schema.keyColumns.companyName, "기업명"]] as const) {
+    if (!name || !fieldByKey.has(name)) return jsonError(`${label} 식별 열 연결을 설문 편집기에서 지정해 주세요.`, 400);
+  }
+
+  const inputs: SurveyTargetInput[] = [];
+  const outputRows: Array<Array<string | number | null>> = [];
+  let skippedCount = 0;
+  for (let rowNumber = detected.headerRow + 1; rowNumber <= detected.sheet.rowCount; rowNumber += 1) {
+    const row = detected.sheet.getRow(rowNumber);
+    const contractId = readKey(row, schema.keyColumns.contractId);
+    const projectId = readKey(row, schema.keyColumns.projectId);
+    const companyName = readKey(row, schema.keyColumns.companyName);
+    if (!contractId && !projectId && !companyName) continue;
+    const status = readKey(row, schema.keyColumns.targetStatus);
+    if (schema.keyColumns.targetStatus && status && status !== "조사대상") { skippedCount += 1; continue; }
+    if (!contractId || !projectId || !companyName) {
+      return jsonError(`${detected.sheet.name} 시트 ${rowNumber}행의 계약ID·과제번호·기업명 값을 확인해 주세요.`, 400);
+    }
+    const companyId = readKey(row, schema.keyColumns.companyId) || stableId("COMP", companyName);
+    const sourceData: Record<string, string | number | null> = {};
+    allFields.forEach((field) => {
+      const column = actualByHeader.get(normalizeExcelHeader(field.sourceHeader));
+      sourceData[field.key] = column ? dynamicCellText(row.getCell(column).value) : "";
+    });
+    const byHeader = (aliases: string[]) => {
+      const normalized = new Set(aliases.map(normalizeExcelHeader));
+      const field = allFields.find((item) => normalized.has(normalizeExcelHeader(item.sourceHeader)));
+      return field ? String(sourceData[field.key] ?? "") : "";
+    };
+    const amountText = byHeader(["계약금액(기술료)", "계약금액_최종", "계약금액"]);
+    const amount = amountText ? Number(amountText.replace(/[^0-9.-]/g, "")) : null;
+    inputs.push({
+      companyId, projectId, contractId, sourceData,
+      company: {
+        name: companyName,
+        businessNumber: byHeader(["사업자등록번호"]), representative: byHeader(["대표자명"]),
+        region: byHeader(["소재지(시·도)", "소재지"]), size: byHeader(["기업규모"]), industry: byHeader(["주요업종", "업종"])
+      },
+      contract: {
+        projectName: byHeader(["연구개발과제명", "과제명", "계약명"]),
+        transferInstitution: byHeader(["기술이전기관(연구기관)", "비영리기관/기술보유기관"]),
+        contractName: byHeader(["기술실시계약명", "계약명"]), signedAt: byHeader(["계약체결일", "계약일_최종"]),
+        periodStart: byHeader(["실시 시작일"]), periodEnd: byHeader(["실시 종료일"]),
+        amount: amount !== null && Number.isFinite(amount) ? amount : null
+      },
+      expiresAt: readKey(row, schema.keyColumns.expiresAt) || undefined
+    });
+    outputRows.push(detected.columns.map((column) => dynamicCellText(row.getCell(column.column).value)));
+  }
+  if (!inputs.length) return jsonError("등록할 조사대상 행이 없습니다.", 400);
+  const issued = await issueSurveyTargets(surveyId, inputs, baseUrl);
+  const output = new ExcelJS.Workbook();
+  const outSheet = output.addWorksheet("개별설문링크", { views: [{ state: "frozen", ySplit: 1 }] });
+  outSheet.addRow([...detected.columns.map((column) => column.sourceHeader), "기업 안내 코드(계약ID)", "조사대상ID", "설문링크", "처리결과"]);
+  issued.forEach((item, index) => outSheet.addRow([...outputRows[index], item.contractId, item.targetId, item.link, "등록 완료"]));
+  styleTargetSheet(outSheet);
+  const buffer = await output.xlsx.writeBuffer();
+  return new NextResponse(buffer as ArrayBuffer, {
+    headers: {
+      "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(`${surveyId}_기업과제별_설문링크_${new Date().toISOString().slice(0, 10)}.xlsx`)}`,
+      "Cache-Control": "no-store", "X-Imported-Count": String(issued.length), "X-Skipped-Count": String(skippedCount)
+    }
+  });
 }
 
 function readHeaderMap(sheet: ExcelJS.Worksheet, rowNumber: number): Map<HeaderName, number> {

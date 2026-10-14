@@ -1211,11 +1211,18 @@ body {
 .personalization-field-head strong { font-size: 14px; }
 .personalization-field-head span { color: #64748b; font-size: 12px; }
 .personalization-field-list { display: grid; gap: 7px; }
+.personalization-file-button { cursor: pointer; }
+.personalization-file-button input { display: none; }
+.personalization-schema-card { margin: 14px 0; padding: 14px; border: 1px solid #cbd5e1; border-radius: 12px; background: #f8fafc; }
+.personalization-schema-card > span { margin-left: 10px; color: #64748b; font-size: 12px; }
+.personalization-schema-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 12px; }
+.personalization-schema-grid label { display: grid; gap: 5px; font-size: 12px; font-weight: 700; }
 .personalization-field-row {
-  display: grid; grid-template-columns: 72px minmax(170px, .8fr) minmax(190px, 1fr) 72px;
+  display: grid; grid-template-columns: 72px minmax(170px, .8fr) minmax(190px, 1fr) 150px 72px;
   gap: 8px; align-items: center; padding: 8px; border: 1px solid #e2e8f0; border-radius: 11px;
   background: #f8fafc; opacity: .68;
 }
+.personalization-field-row > select { min-width: 130px; }
 .personalization-field-row.is-visible { background: #fff; border-color: #bfd3ef; opacity: 1; }
 .personalization-field-check { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 800; }
 .personalization-field-source { color: #475569; font-size: 12px; line-height: 1.4; }
@@ -1336,8 +1343,10 @@ body {
   .personalization-editor-actions { justify-content: stretch; }
   .personalization-editor-actions .builder-btn { flex: 1; }
   .personalization-block-grid { grid-template-columns: 1fr; }
+  .personalization-schema-grid { grid-template-columns: 1fr; }
   .personalization-field-row { grid-template-columns: 68px 1fr 68px; }
   .personalization-field-row > input { grid-column: 1 / -1; grid-row: 2; }
+  .personalization-field-row > select { grid-column: 1 / -1; grid-row: 3; }
   .contract-match-options { grid-template-columns: 1fr; }
   .target-context-badge { align-items: flex-start; flex-direction: column; }
   .target-context-badge span::before { content: none; }

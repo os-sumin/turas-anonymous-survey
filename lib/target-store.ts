@@ -17,6 +17,7 @@ export type SurveyTargetInput = {
   contractId?: string;
   company: SurveyTargetCompany;
   contract: SurveyTargetContract;
+  sourceData?: Record<string, string | number | null>;
   expiresAt?: string;
 };
 
@@ -81,7 +82,8 @@ export function toTargetSnapshot(target: SurveyTarget): SurveyTargetSnapshot {
     projectId: target.projectId,
     contractId: target.contractId,
     company: { ...target.company },
-    contract: { ...target.contract }
+    contract: { ...target.contract },
+    sourceData: target.sourceData ? { ...target.sourceData } : undefined
   };
 }
 
@@ -142,6 +144,7 @@ export async function resolveSurveyTarget(surveyId: string, token?: string): Pro
     contractId: String(data.contract_id || ""),
     company: normalizeCompany(data.company),
     contract: normalizeContract(data.contract),
+    sourceData: normalizeSourceData(data.source_data),
     active: data.active !== false,
     expiresAt,
     responseId: typeof data.response_id === "string" ? data.response_id : undefined
@@ -210,6 +213,7 @@ export async function resolveContractAccessCode(
     contractId: String(data.contract_id || ""),
     company: normalizeCompany(data.company),
     contract: normalizeContract(data.contract),
+    sourceData: normalizeSourceData(data.source_data),
     active: data.active !== false,
     expiresAt,
     responseId: typeof data.response_id === "string" ? data.response_id : undefined
@@ -242,6 +246,7 @@ export async function getSurveyTargetPreview(surveyId: string): Promise<SurveyTa
     contractId: String(data.contract_id || ""),
     company: normalizeCompany(data.company),
     contract: normalizeContract(data.contract),
+    sourceData: normalizeSourceData(data.source_data),
     active: data.active !== false,
     expiresAt: typeof data.expires_at === "string" ? data.expires_at : undefined,
     responseId: typeof data.response_id === "string" ? data.response_id : undefined
@@ -293,6 +298,7 @@ export async function issueSurveyTargets(
       contractId: input.contractId || "",
       company: input.company,
       contract: input.contract,
+      sourceData: input.sourceData,
       active: true,
       expiresAt: input.expiresAt
     };
@@ -320,6 +326,7 @@ export async function issueSurveyTargets(
           contract_id: item.target.contractId,
           company: item.target.company,
           contract: item.target.contract,
+          source_data: item.target.sourceData || null,
           active: true,
           expires_at: item.target.expiresAt || null,
           token_hash: item.tokenHash,
@@ -356,8 +363,19 @@ function normalizeInput(input: SurveyTargetInput): SurveyTargetInput {
       ...normalizeContract(input.contract),
       amount: amount === null || amount === undefined ? null : Number(amount)
     },
+    sourceData: normalizeSourceData(input.sourceData),
     expiresAt
   };
+}
+
+function normalizeSourceData(value: unknown): Record<string, string | number | null> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const result: Record<string, string | number | null> = {};
+  for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+    if (raw === null || typeof raw === "string" || typeof raw === "number") result[key] = raw;
+    else result[key] = String(raw ?? "");
+  }
+  return result;
 }
 
 function hasSecureTokenSecret(): boolean {

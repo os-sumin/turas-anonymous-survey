@@ -133,6 +133,23 @@ export type PersonalizationFieldConfig = {
   key: string;
   label: string;
   visible: boolean;
+  /** 연결된 원본 엑셀 열명. 없으면 구버전 고정 열 설정 */
+  sourceHeader?: string;
+  /** 최근 불러온 엑셀에서 사라진 열 */
+  missing?: boolean;
+};
+
+export type PersonalizationExcelSchema = {
+  sheetName: string;
+  headerRow: number;
+  keyColumns: {
+    contractId: string;
+    projectId: string;
+    companyName: string;
+    companyId?: string;
+    targetStatus?: string;
+    expiresAt?: string;
+  };
 };
 
 /** 설문 안에 배치하는 조사대상 맞춤정보 확인·정정 블록 */
@@ -171,6 +188,8 @@ export type SurveyConfig = {
     enabled: boolean;
     /** 설문 제작 화면에서 관리하는 맞춤정보 표시 블록 */
     blocks?: PersonalizationBlock[];
+    /** 편집 화면에서 불러온 실제 엑셀 구조와 식별 열 연결 */
+    excelSchema?: PersonalizationExcelSchema;
     /** 1-1 기업정보 확인·정정 표 표시. 기본 true */
     companyVerification?: boolean;
     /** 1-3 기술실시계약 정보 확인·정정 표 표시. 기본 true */
@@ -212,6 +231,8 @@ export type SurveyTarget = {
   contractId: string;
   company: SurveyTargetCompany;
   contract: SurveyTargetContract;
+  /** 동적 엑셀 열 key별 원자료 */
+  sourceData?: Record<string, string | number | null>;
   active: boolean;
   expiresAt?: string;
   responseId?: string;

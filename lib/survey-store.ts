@@ -301,6 +301,13 @@ export function validateSurveyConfig(value: unknown): { ok: true; config: Survey
     }
     const blockIds = new Set<string>();
     const blockSources = new Set<string>();
+    const excelSchema = config.personalization.excelSchema;
+    if (excelSchema) {
+      const dynamicKeys = new Set(blocks.flatMap((block) => block.fields.filter((field) => field.sourceHeader).map((field) => field.key)));
+      for (const [key, label] of [[excelSchema.keyColumns.contractId, "계약ID"], [excelSchema.keyColumns.projectId, "과제번호"], [excelSchema.keyColumns.companyName, "기업명"]]) {
+        if (!key || !dynamicKeys.has(key)) return { ok: false, message: `${label} 식별 열을 선택해 주세요.` };
+      }
+    }
     for (const block of blocks) {
       if (!block.id || blockIds.has(block.id)) {
         return { ok: false, message: `맞춤정보 블록 ID가 비어 있거나 중복되었습니다: ${block.id || "(빈 값)"}` };
